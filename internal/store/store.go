@@ -152,15 +152,20 @@ func (s *Store) CheckDomains(id int64, m manifest.Manifest) error {
 	return nil
 }
 func (s *Store) Enqueue(r Release, kind string, op Operation) (Job, error) {
+	operationRun := int64(0)
+	if kind == "operation" {
+		operationRun = r.Run
+	}
 	b, _ := json.Marshal(struct {
-		Repo    int64
-		Commit  string
-		Config  manifest.Manifest
-		Images  map[string]string
-		Secrets map[string]string
-		Op      Operation
-		Kind    string
-	}{r.Repo.ID, r.Commit, r.Config, r.Images, r.Secrets, op, kind})
+		Repo         int64
+		Commit       string
+		Config       manifest.Manifest
+		Images       map[string]string
+		Secrets      map[string]string
+		Op           Operation
+		Kind         string
+		OperationRun int64 `json:",omitempty"`
+	}{r.Repo.ID, r.Commit, r.Config, r.Images, r.Secrets, op, kind, operationRun})
 	sum := sha256.Sum256(b)
 	id := hex.EncodeToString(sum[:])
 	r.ID = id
@@ -197,7 +202,7 @@ func (s *Store) Enqueue(r Release, kind string, op Operation) (Job, error) {
 		return Job{}, e
 	}
 	if kind == "deploy" {
-		_, e = tx.Exec("UPDATE jobs SET payload=?,updated=? WHERE id=? AND status='queued'", payload, now, id)
+		_, e = tx.Exec("UPDATE jobs SET payload=?,updated=? WHERE id=? AND status IN ('queued','running')", payload, now, id)
 		if e != nil {
 			return Job{}, e
 		}
@@ -227,6 +232,11 @@ func (s *Store) Job(id string, repo int64) (Job, error) {
 	}
 	j.Release, e = s.decode(p.Data)
 	j.Operation = p.Op
+	if e == nil && j.Status == "succeeded" {
+		if actual, err := s.Release(j.ID, repo); err == nil {
+			j.Release = actual
+		}
+	}
 	return j, e
 }
 func (s *Store) Next() (Job, error) {
@@ -253,13 +263,29 @@ func (s *Store) Finish(id, status string, err error) error {
 }
 func (s *Store) IsStale(r Release) bool {
 	var latest int64
-	return s.DB.QueryRow("SELECT latest_run FROM apps WHERE repo=?", r.Repo.ID).Scan(&latest) != nil || r.Run < latest
+	if err := s.DB.QueryRow("SELECT latest_run FROM apps WHERE repo=?", r.Repo.ID).Scan(&latest); err != nil {
+		return true
+	}
+	if r.Run >= latest {
+		return false
+	}
+	// A newer workflow requesting the identical running deployment reuses it.
+	// It must not supersede its own candidate; a different deployment still does.
+	j, err := s.Job(r.ID, r.Repo.ID)
+	return err != nil || j.Release.Run != latest
 }
 func (s *Store) Active(repo int64) (Release, error) {
 	var id string
 	e := s.DB.QueryRow("SELECT active FROM apps WHERE repo=?", repo).Scan(&id)
 	if e != nil || id == "" {
 		return Release{}, sql.ErrNoRows
+	}
+	return s.Release(id, repo)
+}
+func (s *Store) LatestRelease(repo int64) (Release, error) {
+	var id string
+	if err := s.DB.QueryRow("SELECT id FROM releases WHERE repo=? ORDER BY created DESC LIMIT 1", repo).Scan(&id); err != nil {
+		return Release{}, err
 	}
 	return s.Release(id, repo)
 }

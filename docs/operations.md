@@ -15,4 +15,4 @@ Applications use their GitHub Actions operation workflow. Fixed operations: stat
 
 Daily backups run at 02:00 Asia/Taipei and remain locally for seven days. PostgreSQL uses a logical dump, Redis a consistent snapshot, other volumes a cold archive. Backup files are age encrypted before being indexed or offered for download. Restore creates new volumes before switching; failed restore returns to previous volumes. Losing the VPS and all downloaded copies loses data; local backup cannot survive destruction of its only disk.
 
-Use `journalctl --user -u personal-paas` under the runtime user for controller diagnostics. Application logs rotate at 3 × 5 MiB per container. Last three successful releases are kept for rollback; deployment history is retained 90 days. Only platform-labelled resources may be cleaned.
+Use `journalctl _COMM=paas` as the VPS operator for controller diagnostics. Application logs rotate at 3 × 5 MiB per container. Last three successful releases are kept for rollback; deployment history is retained 90 days. Only platform-labelled resources may be cleaned.

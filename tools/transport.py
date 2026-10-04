@@ -1,6 +1,7 @@
 """This code is embedded in trusted reusable workflow steps, not fetched from the app."""
 import json, os, time, urllib.request, urllib.error, pathlib, sys
 BASE='https://deploy.ryanl.in'
+class TransientRequestError(RuntimeError):pass
 def request(url,method='GET',body=None,token=None,binary=False):
     headers={'Accept':'application/json','User-Agent':'Ryanl-Personal-PaaS/1.0 (+https://github.com/Deploy-ryanl-in/personal-paas)'}
     if token: headers['Authorization']='Bearer '+token
@@ -10,11 +11,20 @@ def request(url,method='GET',body=None,token=None,binary=False):
         with urllib.request.urlopen(req,timeout=60) as r: return r.read() if binary else json.load(r)
     except urllib.error.HTTPError as e:
         detail=e.read(2048).decode(errors='replace')
-        raise RuntimeError('API HTTP '+str(e.code)+': '+detail) from None
+        error=TransientRequestError if e.code in [429,502,503,504] else RuntimeError
+        raise error('API HTTP '+str(e.code)+': '+detail) from None
+    except (urllib.error.URLError,TimeoutError) as e:
+        raise TransientRequestError('API temporarily unreachable') from None
 def oidc():
     url=os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']+'&audience=https%3A%2F%2Fdeploy.ryanl.in'
     return request(url,token=os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN'])['value']
-def api(path,method='GET',body=None,binary=False):return request(BASE+'/v1/'+path,method,body,oidc(),binary)
+def api(path,method='GET',body=None,binary=False):
+    for attempt in range(6):
+        try:return request(BASE+'/v1/'+path,method,body,oidc(),binary)
+        except TransientRequestError:
+            if attempt==5:raise
+            time.sleep(min(2**attempt,10))
+    raise RuntimeError('API retry limit exceeded')
 def poll(job):
     for _ in range(240):
         state=api('deployments/'+job['id'])

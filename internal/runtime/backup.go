@@ -235,6 +235,18 @@ func (b *Backup) restoreTo(ctx context.Context, e *Engine, current, desired stor
 	target.ID = job
 	target.Created = time.Now()
 	target.Volumes = map[string]string{}
+	freshVolumes := map[string]bool{}
+	keepFresh := false
+	defer func() {
+		if keepFresh {
+			return
+		}
+		cleanup, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		for v := range freshVolumes {
+			b.Docker.Run(cleanup, "volume", "rm", Volume(target.Repo.ID, v))
+		}
+	}()
 	for k, v := range current.Volumes {
 		target.Volumes[k] = v
 	}
@@ -246,6 +258,7 @@ func (b *Backup) restoreTo(ctx context.Context, e *Engine, current, desired stor
 			}
 			fresh := v.Name + "-" + job[:8]
 			target.Volumes[v.Name] = fresh
+			freshVolumes[fresh] = true
 			uid := "10001"
 			if s.Type == "postgres" || s.Type == "redis" {
 				uid = "999"
@@ -273,6 +286,11 @@ func (b *Backup) restoreTo(ctx context.Context, e *Engine, current, desired stor
 			in.Close()
 			if err != nil {
 				return fmt.Errorf("restore of %s volume failed", n)
+			}
+			if s.Type == "redis" {
+				if err := b.prepareRedisAOF(ctx, target, n); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -305,9 +323,40 @@ func (b *Backup) restoreTo(ctx context.Context, e *Engine, current, desired stor
 	}); err != nil {
 		return err
 	}
+	keepFresh = true
+	return nil
+}
+
+// Redis prefers AOF when enabled. Convert the restored RDB before the final
+// append-only server starts, so an empty new AOF cannot hide the restored data.
+func (b *Backup) prepareRedisAOF(ctx context.Context, r store.Release, n string) error {
+	s := r.Config.Services[n]
+	script := `redis-server --port 0 --unixsocket /tmp/redis.sock --dir /data --save "" --appendonly no --daemonize yes
+redis-cli -s /tmp/redis.sock CONFIG SET appendonly yes >/dev/null
+for i in $(seq 1 120); do
+ info=$(redis-cli -s /tmp/redis.sock INFO persistence | tr -d '\r')
+ if printf '%s\n' "$info" | grep -q '^aof_rewrite_in_progress:0$' && printf '%s\n' "$info" | grep -q '^aof_last_bgrewrite_status:ok$'; then
+  redis-cli -s /tmp/redis.sock SHUTDOWN NOSAVE
+  exit 0
+ fi
+ sleep 0.25
+done
+exit 1`
+	_, err := b.Docker.Run(ctx, "run", "--rm", "--network", "none", "--user", "999:999", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "64m", "--pids-limit", "32", "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=8388608,mode=1777", "--mount", "type=volume,src="+Volume(r.Repo.ID, volumeName(r, s.Volumes[0].Name))+",dst=/data", s.Image, "sh", "-ec", script)
+	if err != nil {
+		return errors.New("restored Redis snapshot could not be converted to durable AOF")
+	}
 	return nil
 }
 func (b *Backup) maintenance(ctx context.Context, e *Engine, old, target store.Release, prepare func() error) (err error) {
+	targetOrder, err := target.Config.Order()
+	if err != nil {
+		return err
+	}
+	oldOrder, err := old.Config.Order()
+	if err != nil {
+		return err
+	}
 	success := false
 	defer func() {
 		if success {
@@ -318,15 +367,18 @@ func (b *Backup) maintenance(ctx context.Context, e *Engine, old, target store.R
 		for n := range target.Config.Services {
 			b.Docker.Remove(recover, ServiceName(target, n))
 		}
-		for n := range old.Config.Services {
-			b.Docker.Create(recover, old, n)
+		for _, n := range oldOrder {
+			if b.Docker.Create(recover, old, n) == nil {
+				e.waitReady(recover, old, n, false)
+			}
 		}
 		e.Routes(recover, old, old.Repo.ID)
 	}()
 	if err = e.Routes(ctx, store.Release{}, old.Repo.ID); err != nil {
 		return err
 	}
-	for n := range old.Config.Services {
+	for i := len(oldOrder) - 1; i >= 0; i-- {
+		n := oldOrder[i]
 		if err = b.Docker.Stop(ctx, ServiceName(old, n)); err != nil {
 			return err
 		}
@@ -337,7 +389,7 @@ func (b *Backup) maintenance(ctx context.Context, e *Engine, old, target store.R
 	if err = prepare(); err != nil {
 		return err
 	}
-	for n := range target.Config.Services {
+	for _, n := range targetOrder {
 		if err = b.Docker.Create(ctx, target, n); err != nil {
 			return err
 		}

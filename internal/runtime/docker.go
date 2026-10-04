@@ -35,6 +35,7 @@ type Container struct {
 	Config struct {
 		Labels map[string]string
 		Image  string
+		User   string
 	}
 	Mounts []struct{ Type, Name, Destination string }
 	State  struct {
@@ -46,6 +47,8 @@ type Container struct {
 	}
 	HostConfig struct {
 		Memory         int64
+		Privileged     bool
+		NetworkMode    string
 		NanoCpus       int64
 		PidsLimit      int
 		ReadonlyRootfs bool
@@ -190,11 +193,17 @@ func (d *Docker) Create(ctx context.Context, r store.Release, n string) error {
 		if c.Config.Labels["in.ryanl.paas.release"] != r.ID && s.Type != "postgres" && s.Type != "redis" {
 			return errors.New("container ownership mismatch")
 		}
+		if err := d.VerifyLayout(c, r, n); err != nil {
+			return err
+		}
+		if err := d.Verify(c, s); err != nil {
+			return err
+		}
 		if !c.State.Running {
 			_, e = d.Run(ctx, "start", name)
 			return e
 		}
-		return d.Verify(c, s)
+		return nil
 	}
 	uid := "10001"
 	if s.Type == "postgres" {
@@ -267,6 +276,9 @@ func (d *Docker) Create(ctx context.Context, r store.Release, n string) error {
 	if e != nil {
 		return e
 	}
+	if e = d.VerifyLayout(c, r, n); e != nil {
+		return e
+	}
 	if e = d.Verify(c, s); e != nil {
 		return e
 	}
@@ -299,6 +311,13 @@ func volumeName(r store.Release, n string) string {
 }
 func (d *Docker) Verify(c Container, s manifest.Service) error {
 	h := c.HostConfig
+	uid := "10001:10001"
+	if s.Type == "postgres" || s.Type == "redis" {
+		uid = "999:999"
+	}
+	if c.Config.User != uid || h.Privileged {
+		return errors.New("container user or privilege boundary violated")
+	}
 	if h.Memory != int64(s.Resources.MemoryMiB)*1024*1024 || h.NanoCpus != int64(s.Resources.CPU*1e9) || h.PidsLimit != s.Resources.Pids || !h.ReadonlyRootfs || len(h.CapDrop) != 1 || h.CapDrop[0] != "ALL" {
 		return errors.New("container security/resource limits not applied")
 	}
@@ -320,13 +339,38 @@ func (d *Docker) Verify(c Container, s manifest.Service) error {
 	}
 	return nil
 }
+
+// Reject image-declared anonymous volumes, bind mounts and network escapes.
+func (d *Docker) VerifyLayout(c Container, r store.Release, n string) error {
+	if c.HostConfig.NetworkMode != Network(r.Repo.ID) {
+		return errors.New("container network isolation differs")
+	}
+	expected := map[string]string{}
+	for _, v := range r.Config.Services[n].Volumes {
+		expected[v.Target] = Volume(r.Repo.ID, volumeName(r, v.Name))
+	}
+	for _, mount := range c.Mounts {
+		if mount.Type == "tmpfs" && (mount.Destination == "/tmp" || mount.Destination == "/run") {
+			continue
+		}
+		name, ok := expected[mount.Destination]
+		if mount.Type != "volume" || !ok || name != mount.Name {
+			return errors.New("undeclared or host mount prohibited")
+		}
+		delete(expected, mount.Destination)
+	}
+	if len(expected) > 0 {
+		return errors.New("declared volume missing")
+	}
+	return nil
+}
 func (d *Docker) Port(ctx context.Context, r store.Release, n string) (int, error) {
 	c, e := d.Inspect(ctx, ServiceName(r, n))
 	if e != nil {
 		return 0, e
 	}
 	p := c.NetworkSettings.Ports[fmt.Sprintf("%d/tcp", r.Config.Services[n].Port)]
-	if len(p) != 1 || p[0].HostIP != "127.0.0.1" {
+	if !c.State.Running || len(p) != 1 || p[0].HostIP != "127.0.0.1" {
 		return 0, errors.New("missing loopback binding")
 	}
 	return strconv.Atoi(p[0].HostPort)
@@ -358,7 +402,7 @@ func (d *Docker) Ready(ctx context.Context, r store.Release, n string, external 
 			return fmt.Errorf("health returned HTTP %d", resp.StatusCode)
 		}
 	case "postgres":
-		_, e = d.Run(ctx, "exec", ServiceName(r, n), "pg_isready", "-U", dbUser(s), "-d", dbName(s))
+		_, e = d.Run(ctx, "exec", ServiceName(r, n), "pg_isready", "-h", "127.0.0.1", "-U", dbUser(s), "-d", dbName(s))
 		return e
 	case "redis":
 		b, e := d.Run(ctx, "exec", ServiceName(r, n), "redis-cli", "PING")

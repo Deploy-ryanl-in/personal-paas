@@ -178,8 +178,11 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		active, e := s.Store.Active(id.ID)
+		if e != nil && (op.Action == "redeploy" || op.Action == "rollback") {
+			active, e = s.Store.LatestRelease(id.ID)
+		}
 		if e != nil {
-			fail(w, 404, errors.New("application not active"))
+			fail(w, 404, errors.New("application has no usable release"))
 			return
 		}
 		active.Run, _ = strconv.ParseInt(c.RunID, 10, 64)

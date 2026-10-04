@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Deploy-ryanl-in/personal-paas/internal/store"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -25,7 +26,8 @@ func (p *Proxy) Write(ctx context.Context, releases []store.Release) error {
 			}
 			port, e := p.Docker.Port(ctx, r, n)
 			if e != nil {
-				return e
+				slog.Warn("route unavailable", "repository", r.Repo.ID, "service", n)
+				continue
 			}
 			k := fmt.Sprintf("r%d-%s", r.Repo.ID, n)
 			routers[k] = map[string]any{"rule": "Host(`" + s.Domain + "`)", "entryPoints": []string{"websecure"}, "service": k, "tls": map[string]any{}, "middlewares": []string{"headers"}}

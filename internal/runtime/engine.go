@@ -71,6 +71,9 @@ func (e *Engine) Execute(ctx context.Context, j store.Job) error {
 		return e.Deploy(ctx, j.Release)
 	}
 	r, err := e.Store.Active(j.RepoID)
+	if err == sql.ErrNoRows && (j.Operation.Action == "redeploy" || j.Operation.Action == "rollback") {
+		r, err = e.Store.LatestRelease(j.RepoID)
+	}
 	if err != nil {
 		return errors.New("no active application")
 	}
@@ -204,6 +207,9 @@ func (e *Engine) Deploy(ctx context.Context, r store.Release) (err error) {
 			if s.Type == "worker" {
 				e.Docker.Create(recoverCtx, old, n)
 			}
+		}
+		if cleanupErr := e.Cleanup(recoverCtx, r); cleanupErr != nil {
+			slog.Error("failed candidate cleanup incomplete", "repository", r.Repo.ID, "error", cleanupErr)
 		}
 	}()
 	order, _ := r.Config.Order()
@@ -376,36 +382,54 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var failures []error
 	for _, r := range all {
-		order, _ := r.Config.Order()
+		order, orderErr := r.Config.Order()
+		if orderErr != nil {
+			failures = append(failures, orderErr)
+			continue
+		}
+		if err := e.Docker.EnsureNetwork(ctx, r.Repo.ID); err != nil {
+			failures = append(failures, fmt.Errorf("repository %d: %w", r.Repo.ID, err))
+			continue
+		}
 		for _, n := range order {
 			s := r.Config.Services[n]
 			if s.Type == "postgres" || s.Type == "redis" {
 				if c, inspectErr := e.Docker.Inspect(ctx, ServiceName(r, n)); inspectErr == nil && !e.Docker.DatabaseMatches(c, r, n) {
-					if err = e.Docker.Remove(ctx, c.ID); err != nil {
-						return err
+					if err := e.Docker.Remove(ctx, c.ID); err != nil {
+						failures = append(failures, fmt.Errorf("repository %d: %w", r.Repo.ID, err))
+						break
 					}
 				}
 			}
-			if err = e.Docker.Create(ctx, r, n); err != nil {
-				return err
+			if err := e.Docker.Create(ctx, r, n); err != nil {
+				failures = append(failures, fmt.Errorf("repository %d service %s: %w", r.Repo.ID, n, err))
+				break
 			}
 		}
 	}
 	list, err := e.Docker.List(ctx, 0)
 	if err != nil {
-		return err
-	}
-	active := map[string]bool{}
-	for _, r := range all {
-		for n := range r.Config.Services {
-			active[ServiceName(r, n)] = true
+		failures = append(failures, err)
+	} else {
+		active := map[string]bool{}
+		for _, r := range all {
+			for n := range r.Config.Services {
+				active[ServiceName(r, n)] = true
+			}
+		}
+		for _, c := range list {
+			if !active[c.Name[1:]] {
+				if err := e.Docker.Remove(ctx, c.ID); err != nil {
+					failures = append(failures, err)
+				}
+			}
 		}
 	}
-	for _, c := range list {
-		if !active[c.Name[1:]] {
-			e.Docker.Remove(ctx, c.ID)
-		}
+	// Publish every available application and the control API even if one application cannot recover.
+	if err := e.Proxy.Write(ctx, all); err != nil {
+		failures = append(failures, err)
 	}
-	return e.Proxy.Write(ctx, all)
+	return errors.Join(failures...)
 }
