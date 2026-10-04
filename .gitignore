@@ -1,4 +1,4 @@
-paas
+/paas
 *.db
 *.db-wal
 *.db-shm

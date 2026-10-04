@@ -12,7 +12,7 @@ Status: implementation in progress. Checked items below are local checks, not VP
 - [x] Both public GitHub template repositories created and enabled (content publication tracked separately).
 - [ ] GitHub OIDC end-to-end authentication.
 - [ ] Private template-generated repository push -> GHCR -> HTTPS.
-- [x] Rootless Docker cgroup v2 memory/CPU/PID limits verified on VPS (isolated probe).
+- [x] Rootless Docker cgroup v2 memory/CPU/PID limits verified on VPS; integration covers idempotent creation, loopback routing and candidate budget refusal.
 - [ ] Traefik certificate loading and proxied wildcard verified.
 - [x] Local Next.js standalone browser checks: SSR, API, streaming, image optimization, repeat ISR and unauthenticated revalidation rejection.
 - [ ] Next.js read-only production container cache and authenticated invalidation on VPS.
