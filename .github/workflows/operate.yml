@@ -60,9 +60,11 @@ jobs:
                   state=api('deployments/'+job['id'])
                   if state['status'] in ['failed','superseded']: raise RuntimeError(state.get('error','deployment failed'))
                   if state['status']=='succeeded':
-                      release=state['release'];domains=[s['domain'] for s in release['config']['services'].values() if s['type']=='web']
+                      release=state['release'];stopped=release['config']['state']=='absent' or state.get('operation',{}).get('action')=='stop'
+                      domains=[] if stopped else [s['domain'] for s in release['config']['services'].values() if s['type']=='web']
                       with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
                           f.write('Commit: `'+release['commit']+'`\n\nRelease: `'+state['id']+'`\n\n')
+                          if stopped:f.write('Application stopped; persistent volumes retained.\n')
                           for domain in domains:f.write('- https://'+domain+'\n')
                       return state
                   time.sleep(5)
@@ -79,7 +81,7 @@ jobs:
                   return result
               config=json.loads(base64.b64decode(manifest['content']),object_pairs_hook=unique)
               supplied=json.loads(os.environ.get('PAAS_SECRETS') or '{}',object_pairs_hook=unique)
-              wanted={ref for s in config['services'].values() for ref in s.get('secretRefs',{}).values()}
+              wanted={ref for s in config['services'].values() for ref in s.get('secretRefs',{}).values()} if config['state']=='present' else set()
               selected={ref:supplied[ref] for ref in wanted}
               for value in selected.values():
                   if not isinstance(value,str) or '\n' in value or '\r' in value:raise ValueError('secrets must be single-line strings')

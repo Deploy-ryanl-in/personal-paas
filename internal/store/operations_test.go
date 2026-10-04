@@ -78,3 +78,24 @@ func TestIdenticalRunningDeploymentDoesNotSupersedeItself(t *testing.T) {
 		t.Fatal("older different candidate could overwrite newer version")
 	}
 }
+
+func TestOldPushCannotUndoManualRuntimeOperation(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"), bytes.Repeat([]byte{2}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.DB.Close()
+	r := Release{Repo: manifest.Identity{ID: 45}, Commit: "version", Run: 10}
+	if _, err := s.Enqueue(r, "deploy", Operation{}); err != nil {
+		t.Fatal(err)
+	}
+	r.Run = 20
+	if _, err := s.Enqueue(r, "operation", Operation{Action: "stop"}); err != nil {
+		t.Fatal(err)
+	}
+	r.Run = 15
+	r.Commit = "older-in-flight-push"
+	if _, err := s.Enqueue(r, "deploy", Operation{}); err == nil {
+		t.Fatal("older push could undo a newer manual operation")
+	}
+}

@@ -50,6 +50,10 @@ type Operation struct {
 	Confirm   string `json:"confirm,omitempty"`
 }
 
+func OperationChangesRuntime(op Operation) bool {
+	return op.Action == "redeploy" || op.Action == "rollback" || op.Action == "stop" || op.Action == "restore" || op.Action == "database-upgrade"
+}
+
 func Open(file string, key []byte) (*Store, error) {
 	if len(key) != 32 {
 		return nil, errors.New("encryption key must be 32 bytes")
@@ -124,16 +128,24 @@ func (s *Store) Domains(id int64) (map[string]string, error) {
 	if e != nil {
 		return nil, e
 	}
-	defer rows.Close()
 	m := map[string]string{}
 	for rows.Next() {
 		var n, d string
 		if e = rows.Scan(&n, &d); e != nil {
+			rows.Close()
 			return nil, e
 		}
 		m[n] = d
 	}
-	return m, rows.Err()
+	err := rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if last, e := s.LatestRelease(id); e == nil && last.Config.Name != "" {
+		m["__name"] = last.Config.Name
+	}
+	return m, nil
 }
 func (s *Store) CheckDomains(id int64, m manifest.Manifest) error {
 	for _, v := range m.Services {
@@ -193,7 +205,7 @@ func (s *Store) Enqueue(r Release, kind string, op Operation) (Job, error) {
 	if e != nil {
 		return Job{}, e
 	}
-	if kind == "deploy" && r.Run < latest {
+	if (kind == "deploy" || kind == "operation" && OperationChangesRuntime(op)) && r.Run < latest {
 		return Job{}, errors.New("stale workflow run")
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -208,6 +220,11 @@ func (s *Store) Enqueue(r Release, kind string, op Operation) (Job, error) {
 		}
 		_, e = tx.Exec("UPDATE apps SET latest_run=MAX(latest_run,?) WHERE repo=?", r.Run, r.Repo.ID)
 		if e != nil {
+			return Job{}, e
+		}
+	}
+	if kind == "operation" && OperationChangesRuntime(op) {
+		if _, e = tx.Exec("UPDATE apps SET latest_run=MAX(latest_run,?) WHERE repo=?", r.Run, r.Repo.ID); e != nil {
 			return Job{}, e
 		}
 	}

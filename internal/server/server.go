@@ -119,6 +119,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		secrets := map[string]string{}
 		count := 0
 		for n, svc := range m.Services {
+			if m.State == "absent" {
+				continue
+			}
 			if svc.Type == "web" || svc.Type == "worker" {
 				count++
 				if e = manifest.ValidateImage(id, n, req.Images[n]); e != nil {
@@ -178,7 +181,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		active, e := s.Store.Active(id.ID)
-		if e != nil && (op.Action == "redeploy" || op.Action == "rollback") {
+		if e != nil && (op.Action == "redeploy" || op.Action == "rollback" || op.Action == "stop") {
 			active, e = s.Store.LatestRelease(id.ID)
 		}
 		if e != nil {

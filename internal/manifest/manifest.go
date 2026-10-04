@@ -264,13 +264,34 @@ func AutoName(name string) (string, error) {
 	}
 	return s, nil
 }
+
+// CI can validate explicit domains without knowing the VPS's immutable auto bindings.
+// Resolving auto names and detecting existing domain ownership remain server decisions.
+func ValidateDeclaredDomains(m Manifest) error {
+	domains := map[string]bool{}
+	for _, s := range m.Services {
+		if s.Type != "web" || s.Domain == "auto" {
+			continue
+		}
+		p := strings.TrimSuffix(s.Domain, ".ryanl.in")
+		if s.Domain != p+".ryanl.in" || !dns.MatchString(p) || forbidden[p] || domains[s.Domain] {
+			return errors.New("domain outside allowed namespace, reserved, or duplicate")
+		}
+		domains[s.Domain] = true
+	}
+	return nil
+}
 func Resolve(m Manifest, id Identity, existing map[string]string) (Manifest, error) {
 	if m.Name == "auto" {
-		n, e := AutoName(id.Name)
-		if e != nil {
-			return m, e
+		if existing["__name"] != "" {
+			m.Name = existing["__name"]
+		} else {
+			n, e := AutoName(id.Name)
+			if e != nil || !label.MatchString(n) {
+				n = fmt.Sprintf("app-%d", id.ID)
+			}
+			m.Name = n
 		}
-		m.Name = n
 	}
 	domains := map[string]bool{}
 	for n, s := range m.Services {

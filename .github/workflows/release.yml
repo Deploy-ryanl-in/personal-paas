@@ -20,6 +20,7 @@ jobs:
     outputs:
       matrix: ${{ steps.config.outputs.matrix }}
       enabled: ${{ steps.config.outputs.enabled }}
+      has-builds: ${{ steps.config.outputs.has-builds }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -54,10 +55,11 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write('matrix='+json.dumps(config['matrix'])+'\n')
               f.write('enabled='+str(enabled).lower()+'\n')
+              f.write('has-builds='+str(bool(config['matrix']['include'])).lower()+'\n')
           PY
   build:
     needs: prepare
-    if: needs.prepare.outputs.enabled == 'true'
+    if: needs.prepare.outputs.enabled == 'true' && needs.prepare.outputs.has-builds == 'true'
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -123,7 +125,7 @@ jobs:
           retention-days: 3
   deploy:
     needs: [prepare, build]
-    if: needs.prepare.outputs.enabled == 'true'
+    if: always() && needs.prepare.outputs.enabled == 'true' && needs.prepare.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
@@ -132,6 +134,7 @@ jobs:
       actions: read
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: needs.prepare.outputs.has-builds == 'true'
         with:
           pattern: image-*
           merge-multiple: true
@@ -175,9 +178,11 @@ jobs:
                   state=api('deployments/'+job['id'])
                   if state['status'] in ['failed','superseded']: raise RuntimeError(state.get('error','deployment failed'))
                   if state['status']=='succeeded':
-                      release=state['release'];domains=[s['domain'] for s in release['config']['services'].values() if s['type']=='web']
+                      release=state['release'];stopped=release['config']['state']=='absent' or state.get('operation',{}).get('action')=='stop'
+                      domains=[] if stopped else [s['domain'] for s in release['config']['services'].values() if s['type']=='web']
                       with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
                           f.write('Commit: `'+release['commit']+'`\n\nRelease: `'+state['id']+'`\n\n')
+                          if stopped:f.write('Application stopped; persistent volumes retained.\n')
                           for domain in domains:f.write('- https://'+domain+'\n')
                       return state
                   time.sleep(5)
@@ -194,7 +199,7 @@ jobs:
                   return result
               config=json.loads(base64.b64decode(manifest['content']),object_pairs_hook=unique)
               supplied=json.loads(os.environ.get('PAAS_SECRETS') or '{}',object_pairs_hook=unique)
-              wanted={ref for s in config['services'].values() for ref in s.get('secretRefs',{}).values()}
+              wanted={ref for s in config['services'].values() for ref in s.get('secretRefs',{}).values()} if config['state']=='present' else set()
               selected={ref:supplied[ref] for ref in wanted}
               for value in selected.values():
                   if not isinstance(value,str) or '\n' in value or '\r' in value:raise ValueError('secrets must be single-line strings')

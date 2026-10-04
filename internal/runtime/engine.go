@@ -64,6 +64,9 @@ func (e *Engine) Start(ctx context.Context) {
 	}
 }
 func (e *Engine) Execute(ctx context.Context, j store.Job) error {
+	if j.Kind == "operation" && store.OperationChangesRuntime(j.Operation) && e.Store.IsStale(j.Release) {
+		return errors.New("operation superseded by a newer workflow")
+	}
 	if j.Kind == "deploy" {
 		if e.Store.IsStale(j.Release) {
 			return errors.New("superseded by newer workflow")
@@ -71,12 +74,13 @@ func (e *Engine) Execute(ctx context.Context, j store.Job) error {
 		return e.Deploy(ctx, j.Release)
 	}
 	r, err := e.Store.Active(j.RepoID)
-	if err == sql.ErrNoRows && (j.Operation.Action == "redeploy" || j.Operation.Action == "rollback") {
+	if err == sql.ErrNoRows && (j.Operation.Action == "redeploy" || j.Operation.Action == "rollback" || j.Operation.Action == "stop") {
 		r, err = e.Store.LatestRelease(j.RepoID)
 	}
 	if err != nil {
 		return errors.New("no active application")
 	}
+	r.Run = j.Release.Run
 	switch j.Operation.Action {
 	case "redeploy":
 		r.ID = j.ID
@@ -88,6 +92,7 @@ func (e *Engine) Execute(ctx context.Context, j store.Job) error {
 			return errors.New("rollback version not found")
 		}
 		old.ID = j.ID
+		old.Run = j.Release.Run
 		old.Created = time.Now()
 		old.Volumes = r.Volumes
 		return e.Deploy(ctx, old)

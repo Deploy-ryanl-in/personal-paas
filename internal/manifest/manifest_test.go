@@ -80,3 +80,30 @@ func TestHostMountAndCommandInterfacesDenied(t *testing.T) {
 		t.Fatal("accepted Docker CSV mount injection")
 	}
 }
+
+func TestAutoBindingsSurviveRenameAndExplicitReservedRepositoryName(t *testing.T) {
+	m, _ := Decode([]byte(valid))
+	resolved, err := Resolve(m, Identity{ID: 42, Name: "www"}, map[string]string{"__name": "original", "web": "original.ryanl.in"})
+	if err != nil || resolved.Name != "original" || resolved.Services["web"].Domain != "original.ryanl.in" {
+		t.Fatal("rename lost its original binding", err)
+	}
+	if err := ValidateDeclaredDomains(m); err != nil {
+		t.Fatal("CI must leave existing auto bindings to the server", err)
+	}
+	m, _ = Decode([]byte(valid))
+	s := m.Services["web"]
+	s.Domain = "explicit-project.ryanl.in"
+	m.Services["web"] = s
+	if _, err := Resolve(m, Identity{ID: 42, Name: "www"}, nil); err != nil {
+		t.Fatal("explicit safe domain unusable for a reserved repository name", err)
+	}
+	s.Domain = "www.ryanl.in"
+	m.Services["web"] = s
+	if err := ValidateDeclaredDomains(m); err == nil {
+		t.Fatal("reserved explicit domain accepted")
+	}
+	m, _ = Decode([]byte(valid))
+	if _, err := Resolve(m, Identity{ID: 42, Name: "www"}, nil); err == nil {
+		t.Fatal("new automatic domain used infrastructure namespace")
+	}
+}

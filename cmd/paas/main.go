@@ -55,7 +55,6 @@ func main() {
 	engine := &runtime.Engine{Store: db, Docker: d, Proxy: proxy, ReadyTimeout: 120 * time.Second, Observation: 60 * time.Second, Budget: 768, Backup: backup}
 	if err := engine.Reconcile(ctx); err != nil {
 		slog.Error("startup reconciliation failed; control API remains available", "error", err)
-		must(proxy.Write(ctx, nil))
 	}
 	api := &server.Server{Verifier: &auth.Verifier{Policy: policy, Client: &http.Client{Timeout: 10 * time.Second}}, GitHub: &github.Client{HTTP: &http.Client{Timeout: 15 * time.Second}, AppID: os.Getenv("GITHUB_APP_ID"), Key: rsaKey}, Store: db, Engine: engine}
 	go engine.Start(ctx)
@@ -88,11 +87,10 @@ func validate(args []string) {
 		fatal("repository-id required")
 	}
 	identity := manifest.Identity{ID: *id, Owner: *owner, Name: *name}
-	_, e = manifest.Resolve(m, identity, nil)
-	must(e)
+	must(manifest.ValidateDeclaredDomains(m))
 	rows := []map[string]any{}
 	for n, s := range m.Services {
-		if s.Build != nil {
+		if m.State == "present" && s.Build != nil {
 			rows = append(rows, map[string]any{"service": n, "context": s.Build.Context, "dockerfile": s.Build.Dockerfile, "image": manifest.ImagePath(identity, n), "publicArgs": s.Build.PublicArgs})
 		}
 	}

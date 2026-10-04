@@ -26,6 +26,7 @@ jobs:
     outputs:
       matrix: ${{ steps.config.outputs.matrix }}
       enabled: ${{ steps.config.outputs.enabled }}
+      has-builds: ${{ steps.config.outputs.has-builds }}
     steps:
       - uses: '''+action('actions/checkout')+'''
         with:
@@ -60,10 +61,11 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write('matrix='+json.dumps(config['matrix'])+'\\n')
               f.write('enabled='+str(enabled).lower()+'\\n')
+              f.write('has-builds='+str(bool(config['matrix']['include'])).lower()+'\\n')
           PY
   build:
     needs: prepare
-    if: needs.prepare.outputs.enabled == 'true'
+    if: needs.prepare.outputs.enabled == 'true' && needs.prepare.outputs.has-builds == 'true'
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -129,7 +131,7 @@ jobs:
           retention-days: 3
   deploy:
     needs: [prepare, build]
-    if: needs.prepare.outputs.enabled == 'true'
+    if: always() && needs.prepare.outputs.enabled == 'true' && needs.prepare.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
@@ -138,6 +140,7 @@ jobs:
       actions: read
     steps:
       - uses: '''+action('actions/download-artifact')+'''
+        if: needs.prepare.outputs.has-builds == 'true'
         with:
           pattern: image-*
           merge-multiple: true
