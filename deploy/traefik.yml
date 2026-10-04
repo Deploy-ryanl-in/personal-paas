@@ -2,6 +2,7 @@ entryPoints:
   web:
     address: ':80'
     http:
+      aliasHeadersStrategy: reject
       redirections:
         entryPoint:
           to: websecure
@@ -9,6 +10,8 @@ entryPoints:
           permanent: true
   websecure:
     address: ':443'
+    http:
+      aliasHeadersStrategy: reject
 providers:
   file:
     directory: /var/lib/paas-routes

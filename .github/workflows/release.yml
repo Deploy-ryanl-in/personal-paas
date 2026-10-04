@@ -147,7 +147,7 @@ jobs:
           import json, os, time, urllib.request, urllib.error, pathlib, sys
           BASE='https://deploy.ryanl.in'
           def request(url,method='GET',body=None,token=None,binary=False):
-              headers={'Accept':'application/json'}
+              headers={'Accept':'application/json','User-Agent':'Ryanl-Personal-PaaS/1.0 (+https://github.com/Deploy-ryanl-in/personal-paas)'}
               if token: headers['Authorization']='Bearer '+token
               if body is not None: headers['Content-Type']='application/json'
               req=urllib.request.Request(url,data=None if body is None else json.dumps(body).encode(),headers=headers,method=method)
