@@ -1,0 +1,11 @@
+[Unit]
+Description=Cloudflare origin filtering for PaaS HTTP ports only
+After=network-online.target
+Wants=network-online.target
+Before=paas-traefik.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/personal-paas/origin-firewall.py
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

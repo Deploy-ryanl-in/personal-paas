@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh Cloudflare origin IP ranges
+[Timer]
+Unit=paas-origin-firewall-refresh.service
+OnCalendar=weekly
+RandomizedDelaySec=3600
+Persistent=true
+[Install]
+WantedBy=timers.target

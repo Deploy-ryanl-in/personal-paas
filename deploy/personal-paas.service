@@ -1,0 +1,27 @@
+[Unit]
+Description=Personal PaaS controller
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/personal-paas/runtime.env
+ExecStart=/usr/local/bin/paas --state /var/lib/paas-runtime --routes /var/lib/paas-routes --policy /etc/personal-paas/policy.json
+Restart=on-failure
+RestartSec=5
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/paas-runtime /var/lib/paas-routes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LockPersonality=true
+RestrictSUIDSGID=true
+MemoryMax=160M
+TasksMax=64
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

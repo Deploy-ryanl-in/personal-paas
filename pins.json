@@ -1,0 +1,35 @@
+{
+  "actions": {
+    "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
+    "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",
+    "actions/setup-dotnet": "67a3573c9a986a3f9c594539f4ab511d57bb3ce9",
+    "actions/setup-go": "40f1582b2485089dde7abd97c1529aa768e1baff",
+    "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+    "actions/download-artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+    "docker/setup-buildx-action": "8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
+    "docker/login-action": "c94ce9fb468520275223c153574b00df6fe4bcc9",
+    "docker/build-push-action": "10e90e3645eae34f1e60eeb005ba3a3d33f178e8"
+  },
+  "images": {
+    "node": "node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
+    "alpine": "alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0",
+    "postgres": "postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba",
+    "redis": "redis:8.2.2-bookworm@sha256:4521b581dbddea6e7d81f8fe95ede93f5648aaa66a9dacd581611bf6fe7527bd",
+    "dotnet-sdk": "mcr.microsoft.com/dotnet/sdk:10.0.401-noble@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317",
+    "dotnet-runtime": "mcr.microsoft.com/dotnet/aspnet:10.0.12-noble@sha256:222759b391a1aaf241166672c8f99b2d4ada452e7b5319f3c6e8f265a37b5ad4"
+  },
+  "binaries": {
+    "traefik": {
+      "version": "v3.7.13",
+      "archive": "traefik_v3.7.13_linux_amd64.tar.gz",
+      "sha256": "52cd039a34258dd61c617a95d69252bc6bcae27c520f338186c31c7fef8f6394",
+      "url": "https://github.com/traefik/traefik/releases/download/v3.7.13/traefik_v3.7.13_linux_amd64.tar.gz"
+    },
+    "lego": {
+      "version": "v5.5.2",
+      "archive": "lego_v5.5.2_linux_amd64.tar.gz",
+      "sha256": "2a35505089e7772c92e1e9ac144df91151ef2eca8568630db0ff91fca06d9bef",
+      "url": "https://github.com/go-acme/lego/releases/download/v5.5.2/lego_v5.5.2_linux_amd64.tar.gz"
+    }
+  }
+}

@@ -1,0 +1,271 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "name": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "present",
+        "absent"
+      ]
+    },
+    "deployBranch": {
+      "type": "string"
+    },
+    "services": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 8,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,39}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": [
+              "web",
+              "worker",
+              "postgres",
+              "redis"
+            ]
+          },
+          "build": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "type": "string"
+              },
+              "dockerfile": {
+                "type": "string"
+              },
+              "publicArgs": {
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              }
+            },
+            "required": [
+              "context",
+              "dockerfile"
+            ]
+          },
+          "image": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 65535
+          },
+          "domain": {
+            "type": "string"
+          },
+          "health": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^/[^?#]*$"
+              },
+              "status": {
+                "type": "integer",
+                "minimum": 200,
+                "maximum": 299
+              }
+            },
+            "required": [
+              "path",
+              "status"
+            ]
+          },
+          "resources": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "memoryMiB": {
+                "type": "integer",
+                "minimum": 32,
+                "maximum": 768
+              },
+              "cpu": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1
+              },
+              "pids": {
+                "type": "integer",
+                "minimum": 16,
+                "maximum": 256
+              }
+            },
+            "required": [
+              "memoryMiB",
+              "cpu",
+              "pids"
+            ]
+          },
+          "environment": {
+            "type": "object",
+            "propertyNames": {
+              "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "secretRefs": {
+            "type": "object",
+            "propertyNames": {
+              "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "volumes": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,39}$"
+                },
+                "target": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "target"
+              ]
+            }
+          },
+          "dependsOn": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "resources"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "web",
+                    "worker"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "build"
+              ],
+              "not": {
+                "required": [
+                  "image"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "web"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "port",
+                "domain",
+                "health"
+              ]
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "port"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "domain"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "health"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "enum": [
+                    "postgres",
+                    "redis"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "image",
+                "volumes"
+              ],
+              "not": {
+                "required": [
+                  "build"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "name",
+    "state",
+    "deployBranch",
+    "services"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Deploy-ryanl-in/personal-paas/main/schema/paas.v1.json",
+  "title": "Personal PaaS v1"
+}

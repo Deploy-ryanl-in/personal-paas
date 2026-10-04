@@ -1,0 +1,22 @@
+entryPoints:
+  web:
+    address: ':80'
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ':443'
+providers:
+  file:
+    directory: /var/lib/paas-routes
+    watch: true
+api:
+  dashboard: false
+log:
+  level: INFO
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false

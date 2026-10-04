@@ -1,0 +1,213 @@
+name: Reusable image release and OIDC deployment
+on:
+  workflow_call:
+    inputs:
+      platform-sha:
+        required: true
+        type: string
+    secrets:
+      PAAS_SECRETS:
+        required: false
+permissions: {}
+concurrency:
+  group: paas-${{ github.repository_id }}-release
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.config.outputs.matrix }}
+      enabled: ${{ steps.config.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          path: application
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: Deploy-ryanl-in/personal-paas
+          ref: ${{ inputs.platform-sha }}
+          persist-credentials: false
+          path: platform
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: platform/go.mod
+          cache-dependency-path: platform/go.sum
+      - name: Validate declaration
+        id: config
+        env:
+          REPOSITORY_ID: ${{ github.repository_id }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          TEMPLATE: ${{ github.event.repository.is_template }}
+        working-directory: platform
+        run: |
+          go run ./cmd/paas validate --file ../application/paas.json --repository-id "$REPOSITORY_ID" --owner "$REPOSITORY_OWNER" --name "$REPOSITORY_NAME" > config.json
+          python3 - <<'PY'
+          import json,os
+          config=json.load(open('config.json'))
+          enabled=os.environ['EVENT_NAME']=='push' and os.environ['REF']=='refs/heads/'+config['deployBranch'] and os.environ['TEMPLATE']!='true'
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('matrix='+json.dumps(config['matrix'])+'\n')
+              f.write('enabled='+str(enabled).lower()+'\n')
+          PY
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.enabled == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Public build arguments
+        id: args
+        env:
+          PUBLIC_ARGS: ${{ toJSON(matrix.publicArgs) }}
+        run: |
+          python3 - <<'PY'
+          import json,os
+          args=json.loads(os.environ['PUBLIC_ARGS'] or '{}') or {}
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('args<<PUBLIC_BUILD_ARGS\n')
+              for k,v in args.items():
+                  if '\n' in v or '\r' in v:raise ValueError('multiline build arg prohibited')
+                  f.write(k+'='+v+'\n')
+              f.write('PUBLIC_BUILD_ARGS\n')
+          PY
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        id: image
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ matrix.image }}:${{ github.sha }}
+          build-args: ${{ steps.args.outputs.args }}
+          provenance: mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            in.ryanl.paas.managed=true
+            in.ryanl.paas.repository=${{ github.repository_id }}
+      - name: Record digest
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE: ${{ matrix.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          python3 - <<'PY'
+          import os,json
+          with open(os.environ['SERVICE']+'.json','w') as f:json.dump({'service':os.environ['SERVICE'],'image':os.environ['IMAGE'],'digest':os.environ['DIGEST']},f)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: image-${{ matrix.service }}
+          path: ${{ matrix.service }}.json
+          retention-days: 3
+  deploy:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: image-*
+          merge-multiple: true
+          path: images
+      - name: Authenticated declarative deployment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PAAS_SECRETS: ${{ secrets.PAAS_SECRETS }}
+          PAAS_MODE: deploy
+        run: |
+          python3 - <<'PY'
+          """This code is embedded in trusted reusable workflow steps, not fetched from the app."""
+          import json, os, time, urllib.request, urllib.error, pathlib, sys
+          BASE='https://deploy.ryanl.in'
+          def request(url,method='GET',body=None,token=None,binary=False):
+              headers={'Accept':'application/json'}
+              if token: headers['Authorization']='Bearer '+token
+              if body is not None: headers['Content-Type']='application/json'
+              req=urllib.request.Request(url,data=None if body is None else json.dumps(body).encode(),headers=headers,method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=60) as r: return r.read() if binary else json.load(r)
+              except urllib.error.HTTPError as e:
+                  detail=e.read(2048).decode(errors='replace')
+                  raise RuntimeError('API HTTP '+str(e.code)+': '+detail) from None
+          def oidc():
+              url=os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']+'&audience=https%3A%2F%2Fdeploy.ryanl.in'
+              return request(url,token=os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN'])['value']
+          def api(path,method='GET',body=None,binary=False):return request(BASE+'/v1/'+path,method,body,oidc(),binary)
+          def poll(job):
+              for _ in range(240):
+                  state=api('deployments/'+job['id'])
+                  if state['status'] in ['failed','superseded']: raise RuntimeError(state.get('error','deployment failed'))
+                  if state['status']=='succeeded':
+                      release=state['release'];domains=[s['domain'] for s in release['config']['services'].values() if s['type']=='web']
+                      with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+                          f.write('Commit: `'+release['commit']+'`\n\nRelease: `'+state['id']+'`\n\n')
+                          for domain in domains:f.write('- https://'+domain+'\n')
+                      return state
+                  time.sleep(5)
+              raise RuntimeError('deployment deadline exceeded')
+          if os.environ['PAAS_MODE']=='deploy':
+              repo=os.environ['GITHUB_REPOSITORY'];sha=os.environ['GITHUB_SHA']
+              manifest=request('https://api.github.com/repos/'+repo+'/contents/paas.json?ref='+sha,token=os.environ['GH_TOKEN'])
+              import base64
+              def unique(pairs):
+                  result={}
+                  for k,v in pairs:
+                      if k in result:raise ValueError('duplicate manifest key')
+                      result[k]=v
+                  return result
+              config=json.loads(base64.b64decode(manifest['content']),object_pairs_hook=unique)
+              supplied=json.loads(os.environ.get('PAAS_SECRETS') or '{}',object_pairs_hook=unique)
+              wanted={ref for s in config['services'].values() for ref in s.get('secretRefs',{}).values()}
+              selected={ref:supplied[ref] for ref in wanted}
+              for value in selected.values():
+                  if not isinstance(value,str) or '\n' in value or '\r' in value:raise ValueError('secrets must be single-line strings')
+                  print('::add-mask::'+value)
+              images={}
+              for file in pathlib.Path('images').glob('*.json'):
+                  value=json.loads(file.read_text());images[value['service']]=value['image']+'@'+value['digest']
+              poll(api('deployments','POST',{'images':images,'secrets':selected}))
+          else:
+              action=os.environ['OP_ACTION']
+              if action in ['status','history','backups','logs']:
+                  route=action
+                  if action=='logs':
+                      import urllib.parse
+                      route+='?service='+urllib.parse.quote(os.environ['OP_SERVICE'])
+                  print(json.dumps(api(route),indent=2))
+              elif action=='download-backup':
+                  import urllib.parse
+                  data=api('backups/'+urllib.parse.quote(os.environ['OP_BACKUP'],safe=''),binary=True)
+                  pathlib.Path('backup.tar.age').write_bytes(data)
+              else:
+                  body={'action':action}
+                  for env,key in [('OP_RELEASE','releaseId'),('OP_SERVICE','service'),('OP_IMAGE','image'),('OP_BACKUP','backupId'),('OP_CONFIRM','confirm')]:
+                      if os.environ.get(env):body[key]=os.environ[env]
+                  print(json.dumps(poll(api('operations','POST',body)),indent=2))
+          PY

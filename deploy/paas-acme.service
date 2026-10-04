@@ -1,0 +1,22 @@
+[Unit]
+Description=Personal PaaS wildcard certificate renewal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=paas-acme
+Group=paas-tls
+EnvironmentFile=/etc/paas-acme/dns.env
+ExecStart=/usr/local/lib/personal-paas/renew-certificate.sh
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/paas-acme
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=128M
+TasksMax=32
