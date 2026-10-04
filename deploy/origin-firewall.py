@@ -1,12 +1,15 @@
 #!/usr/bin/python3
 """Atomically update only our inet table, leaving SSH, Xray and all other chains untouched."""
 import urllib.request,ipaddress,subprocess,pathlib
+import json
+request=urllib.request.Request('https://api.cloudflare.com/client/v4/ips',headers={'User-Agent':'Personal-PaaS/1.0'})
+with urllib.request.urlopen(request,timeout=30) as response:data=json.loads(response.read(65536))
+if data.get('success') is not True:raise RuntimeError('Cloudflare address API failed')
 networks=[]
-for family,url in [('ip','https://www.cloudflare.com/ips-v4'),('ip6','https://www.cloudflare.com/ips-v6')]:
-    with urllib.request.urlopen(url,timeout=30) as r:lines=r.read().decode().splitlines()
-    values=[str(ipaddress.ip_network(v.strip())) for v in lines if v.strip()]
-    if len(values)<5:raise RuntimeError('incomplete Cloudflare address list')
-    networks.append((family,values))
+for family,key,version in [('ip','ipv4_cidrs',4),('ip6','ipv6_cidrs',6)]:
+    addresses=[ipaddress.ip_network(v) for v in data['result'][key]]
+    if len(addresses)<5 or any(v.version!=version or v.prefixlen<(8 if version==4 else 16) for v in addresses):raise RuntimeError('invalid Cloudflare address list')
+    networks.append((family,[str(v) for v in addresses]))
 existing=subprocess.run(['nft','list','table','inet','paas_origin'],capture_output=True).returncode==0
 script=('delete table inet paas_origin\n' if existing else '')+'table inet paas_origin {\n chain input {\n type filter hook input priority -5; policy accept;\n iifname "lo" accept\n'
 for family,values in networks:script+=family+' saddr { '+', '.join(values)+' } tcp dport { 80, 443 } accept\n'
