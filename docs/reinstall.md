@@ -37,6 +37,9 @@ Copy `deploy/credentials.example.json` outside your checkout as `credentials.jso
 Download `personal-paas-linux-amd64.tar.gz` and `SHA256SUMS` from the **same** immutable `build-<SHA>` release under your configured platform repository. Verify the archive before extraction:
 
 ```sh
+# Once, on a minimal Debian image, prepare the installer interpreter and TLS tools.
+sudo apt-get update
+sudo apt-get install -y python3 ca-certificates openssl
 sha256sum --check SHA256SUMS
 tar -xzf personal-paas-linux-amd64.tar.gz
 chmod 600 credentials.json
