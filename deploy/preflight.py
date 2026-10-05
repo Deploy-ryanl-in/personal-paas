@@ -23,7 +23,7 @@ def check(c, credentials):
             if len(rows)<100:break
     for owner in c['owners']:
         identity=github_get('/users/'+owner['login'])
-        if str(identity['id'])!=owner['id'] or identity['type']!=owner['type']:raise ValueError('GitHub owner ID/type mismatch: '+owner['login'])
+        if str(identity['id'])!=owner['id'] or identity['type']!=owner['type'] or identity['login'].lower()!=owner['login'].lower():raise ValueError('GitHub owner ID/login/type mismatch: '+owner['login'])
         matching=[i for i in installs if str(i['account']['id'])==owner['id'] and not i.get('suspended_at')]
         if c.get('repositoryVerification','job-token-or-app')=='app' and (not matching or matching[0]['repository_selection']!='all'):
             raise ValueError('Install readonly runtime App on all current/future repositories for '+owner['login'])

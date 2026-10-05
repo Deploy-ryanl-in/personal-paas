@@ -47,9 +47,9 @@ func (s *Server) authorize(next http.Handler) http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 		defer cancel()
-		if token := r.Header.Get("X-GitHub-Read-Token"); token != "" {
-			if !s.Verifier.Policy.AllowJobToken || len(token) > 4096 || strings.ContainsAny(token, " \t\r\n\x00") {
-				fail(w, 403, errors.New("job-scoped read token not allowed or invalid"))
+		if token := r.Header.Get("X-GitHub-Read-Token"); token != "" && s.Verifier.Policy.AllowJobToken {
+			if len(token) > 4096 || strings.ContainsAny(token, " \t\r\n\x00") {
+				fail(w, 403, errors.New("invalid job-scoped read token"))
 				return
 			}
 			ctx = github.WithReadToken(ctx, token)

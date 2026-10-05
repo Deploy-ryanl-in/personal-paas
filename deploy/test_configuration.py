@@ -27,7 +27,7 @@ class CredentialAndPreflightTests(unittest.TestCase):
   identities={o['login']:o for o in self.c['owners']}
   def get(path,token=None):
    self.assertIsNone(token);o=identities[path.removeprefix('/users/')]
-   return {'id':int(o['id']),'type':o['type']}
+   return {'id':int(o['id']),'type':o['type'],'login':o['login']}
   with patch('preflight.github_get',side_effect=get):check(self.c,self.credentials)
   from configuration import policy
   self.assertTrue(policy(self.c,{'images':{'postgres':'p','redis':'r','alpine':'a'}})['allowJobToken'])
@@ -36,6 +36,8 @@ class CredentialAndPreflightTests(unittest.TestCase):
   from preflight import check
   from configuration import validate_credentials
   with patch('preflight.github_get',return_value={'id':999,'type':'User'}),self.assertRaises(ValueError):check(self.c,self.credentials)
+  o=self.c['owners'][0]
+  with patch('preflight.github_get',return_value={'id':int(o['id']),'type':o['type'],'login':'RenamedOwner'}),self.assertRaises(ValueError):check(self.c,self.credentials)
   with self.assertRaises(ValueError):validate_credentials(dict(self.credentials,githubAppId='123'))
   self.c['repositoryVerification']='app'
   with self.assertRaises(ValueError):check(self.c,self.credentials)
