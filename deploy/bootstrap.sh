@@ -1,23 +1,19 @@
 #!/bin/bash
 set -euo pipefail
-# Run once as root on the VPS, from a reviewed platform checkout.
-# Never restarts rootful Docker, x-ui, Xray or existing firewall services.
+# Debian 12/13 amd64, cgroup v2 + systemd. Only provisions dedicated PaaS identities.
 test "$(id -u)" -eq 0
 test -f /sys/fs/cgroup/cgroup.controllers
-if ss -lnt '( sport = :80 or sport = :443 )' | tail -n +2 | grep -q .; then
-  echo '80/443 already occupied; refusing installation' >&2; exit 1
-fi
 umask 077
 baseline="/root/paas-baseline-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -m 700 "$baseline"
 ss -lntup > "$baseline/listeners.txt"
-systemctl show x-ui --property=ActiveState,MainPID,ExecMainStartTimestamp > "$baseline/x-ui.txt"
-nft -j list ruleset > "$baseline/firewall.json"
-cp -a /etc/x-ui "$baseline/x-ui-config"
-cp -a /usr/local/x-ui/bin/config.json "$baseline/xray-config.json"
-export DEBIAN_FRONTEND=noninteractive
+systemctl show x-ui --property=ActiveState,MainPID,ExecMainStartTimestamp > "$baseline/x-ui.txt" 2>/dev/null || true
+command -v nft >/dev/null && nft -j list ruleset > "$baseline/firewall.json" || true
+test ! -d /etc/x-ui || cp -a /etc/x-ui "$baseline/x-ui-config"
+test ! -f /usr/local/x-ui/bin/config.json || cp -a /usr/local/x-ui/bin/config.json "$baseline/xray-config.json"
+export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l
 apt-get update
-apt-get install -y --no-install-recommends uidmap slirp4netns dbus-user-session acl age ca-certificates
+apt-get install -y --no-install-recommends uidmap slirp4netns dbus-user-session acl age ca-certificates iptables nftables openssl curl
 getent group paas-proxy >/dev/null || groupadd --system paas-proxy
 getent group paas-tls >/dev/null || groupadd --system paas-tls
 id paas-runtime >/dev/null 2>&1 || useradd --create-home --home-dir /var/lib/paas-runtime --shell /bin/bash paas-runtime
@@ -25,9 +21,17 @@ id paas-traefik >/dev/null 2>&1 || useradd --system --home-dir /var/lib/paas-tra
 id paas-acme >/dev/null 2>&1 || useradd --system --home-dir /var/lib/paas-acme --shell /usr/sbin/nologin paas-acme
 usermod -a -G paas-proxy paas-runtime
 usermod -a -G paas-tls paas-traefik
-# useradd assigns subordinate UIDs/GIDs. Refuse overlaps or a missing mapping.
-grep -q '^paas-runtime:' /etc/subuid
-grep -q '^paas-runtime:' /etc/subgid
+python3 - <<'PY'
+# Refuse overlapping subordinate mappings, including overlap with another user's range.
+for filename in ['/etc/subuid','/etc/subgid']:
+    ranges=[]
+    for line in open(filename):
+        name,start,count=line.strip().split(':');ranges.append((int(start),int(start)+int(count),name))
+    own=[r for r in ranges if r[2]=='paas-runtime']
+    if not own or sum(b-a for a,b,_ in own)<65536:raise SystemExit('missing subordinate UID/GID allocation')
+    for a,b,name in own:
+        if any(a<d and c<b for c,d,other in ranges if other!=name):raise SystemExit('overlapping subordinate UID/GID allocations')
+PY
 install -d -o paas-runtime -g paas-runtime -m 700 /var/lib/paas-runtime/{backups,tmp,docker}
 install -d -o paas-runtime -g paas-proxy -m 2750 /var/lib/paas-routes
 install -d -o paas-acme -g paas-tls -m 2750 /var/lib/paas-acme
@@ -45,19 +49,19 @@ if ! test -f /var/lib/paas-runtime/backup.agekey; then
   chown paas-runtime:paas-runtime /var/lib/paas-runtime/backup.agekey
   chmod 600 /var/lib/paas-runtime/backup.agekey
 fi
-ln -sf /usr/bin/age /usr/local/bin/age
 loginctl enable-linger paas-runtime
 runtime_uid=$(id -u paas-runtime)
-systemctl start "user@${runtime_uid}.service"
 install -d -m 755 "/etc/systemd/system/user@${runtime_uid}.service.d"
-cat > "/etc/systemd/system/user@${runtime_uid}.service.d/paas-delegate.conf" <<'UNIT'
+delegate="/etc/systemd/system/user@${runtime_uid}.service.d/paas-delegate.conf"
+if ! test -f "$delegate"; then
+  if systemctl is-active --quiet "user@${runtime_uid}.service"; then
+    echo 'Existing runtime user lacks delegation; stop only PaaS workloads before migration' >&2;exit 1
+  fi
+  cat > "$delegate" <<'UNIT'
 [Service]
 Delegate=cpu cpuset io memory pids
 UNIT
+fi
 systemctl daemon-reload
-# Delegation takes effect for this newly installed user's manager only.
-systemctl restart "user@${runtime_uid}.service"
-runuser -u paas-runtime -- env XDG_RUNTIME_DIR="/run/user/${runtime_uid}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${runtime_uid}/bus" dockerd-rootless-setuptool.sh install --force
-runuser -u paas-runtime -- env XDG_RUNTIME_DIR="/run/user/${runtime_uid}" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${runtime_uid}/bus" systemctl --user enable --now docker
+systemctl start "user@${runtime_uid}.service"
 echo "Rootless runtime UID: ${runtime_uid}; baseline: ${baseline}"
-echo 'Install reviewed binaries, policy and credentials before starting controller/Traefik.'

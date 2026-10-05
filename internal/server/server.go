@@ -108,7 +108,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, e)
 			return
 		}
-		m, e = manifest.Resolve(m, id, domains)
+		m, e = manifest.Resolve(m, id, domains, s.Verifier.Policy.BaseDomain(), s.Verifier.Policy.ControlDomain())
 		if e == nil {
 			e = s.Store.CheckDomains(id.ID, m)
 		}

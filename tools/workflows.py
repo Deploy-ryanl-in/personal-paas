@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
-import pathlib,json,sys
-root=pathlib.Path(__file__).resolve().parents[1];templates=root.parent/'templates';pins=json.loads((root/'pins.json').read_text());a=pins['actions'];sha=sys.argv[1] if len(sys.argv)>1 else 'PLATFORM_COMMIT_SHA'
+import pathlib,json,sys,argparse
+parser=argparse.ArgumentParser()
+parser.add_argument("sha", nargs="?", default="PLATFORM_COMMIT_SHA")
+parser.add_argument("--repository", default="Deploy-ryanl-in/personal-paas")
+parser.add_argument("--deployment-url", default="https://deploy.ryanl.in")
+parser.add_argument("--domain", default="ryanl.in")
+parser.add_argument("--templates-dir", type=pathlib.Path)
+args=parser.parse_args()
+root=pathlib.Path(__file__).resolve().parents[1];templates=args.templates_dir or root.parent/'templates';pins=json.loads((root/'pins.json').read_text());a=pins['actions'];sha=args.sha
 def action(n):return n+'@'+a[n]
 workflows=root/'.github/workflows';workflows.mkdir(parents=True,exist_ok=True)
 transport=(root/'tools/transport.py').read_text();embedded='\n'.join('          '+line for line in transport.splitlines())
@@ -8,6 +15,9 @@ transport=(root/'tools/transport.py').read_text();embedded='\n'.join('          
 on:
   workflow_call:
     inputs:
+      deployment-url: {required: false, type: string, default: https://deploy.ryanl.in}
+      domain: {required: false, type: string, default: ryanl.in}
+      platform-repository: {required: false, type: string, default: Deploy-ryanl-in/personal-paas}
       platform-sha:
         required: true
         type: string
@@ -34,7 +44,7 @@ jobs:
           path: application
       - uses: '''+action('actions/checkout')+'''
         with:
-          repository: Deploy-ryanl-in/personal-paas
+          repository: ${{ inputs.platform-repository }}
           ref: ${{ inputs.platform-sha }}
           persist-credentials: false
           path: platform
@@ -51,9 +61,11 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           TEMPLATE: ${{ github.event.repository.is_template }}
+          PAAS_DOMAIN: ${{ inputs.domain }}
+          PAAS_URL: ${{ inputs.deployment-url }}
         working-directory: platform
         run: |
-          go run ./cmd/paas validate --file ../application/paas.json --repository-id "$REPOSITORY_ID" --owner "$REPOSITORY_OWNER" --name "$REPOSITORY_NAME" > config.json
+          go run ./cmd/paas validate --file ../application/paas.json --repository-id "$REPOSITORY_ID" --owner "$REPOSITORY_OWNER" --name "$REPOSITORY_NAME" --domain "$PAAS_DOMAIN" --control-domain "$(python3 -c 'import urllib.parse,os; print(urllib.parse.urlsplit(os.environ["PAAS_URL"]).hostname)')" > config.json
           python3 - <<'PY'
           import json,os
           config=json.load(open('config.json'))
@@ -150,6 +162,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PAAS_SECRETS: ${{ secrets.PAAS_SECRETS }}
           PAAS_MODE: deploy
+          PAAS_URL: ${{ inputs.deployment-url }}
         run: |
           python3 - <<'PY'
 '''+embedded+'''
@@ -159,6 +172,7 @@ jobs:
 on:
   workflow_call:
     inputs:
+      deployment-url: {required: false, type: string, default: https://deploy.ryanl.in}
       action: {required: true, type: string}
       release-id: {required: false, type: string, default: ''}
       service: {required: false, type: string, default: web}
@@ -177,6 +191,7 @@ jobs:
       - name: Execute fixed operation
         env:
           PAAS_MODE: operation
+          PAAS_URL: ${{ inputs.deployment-url }}
           OP_ACTION: ${{ inputs.action }}
           OP_RELEASE: ${{ inputs.release-id }}
           OP_SERVICE: ${{ inputs.service }}
@@ -210,6 +225,31 @@ jobs:
       - run: go vet ./...
       - run: test -z "$(gofmt -l .)"
       - run: go build ./cmd/paas
+      - run: python3 -m unittest discover -s deploy -p 'test_*.py'
+      - name: Build reviewed installation bundle
+        env: {CGO_ENABLED: '0', GOOS: linux, GOARCH: amd64}
+        run: |
+          go build -trimpath -ldflags='-s -w' -o paas ./cmd/paas
+          python3 tools/build-bundle.py "$GITHUB_SHA" dist
+      - uses: '''+action('actions/upload-artifact')+'''
+        with:
+          name: installation-linux-amd64
+          path: |
+            dist/personal-paas-linux-amd64.tar.gz
+            dist/SHA256SUMS
+          retention-days: 90
+  publish:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions: {contents: write}
+    steps:
+      - uses: '''+action('actions/download-artifact')+'''
+        with: {name: installation-linux-amd64, path: dist}
+      - name: Publish immutable commit release
+        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'}
+        run: |
+          gh release create "build-$GITHUB_SHA" dist/personal-paas-linux-amd64.tar.gz dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Installation $GITHUB_SHA" --notes "Reviewed Linux amd64 controller and clean VPS installer. Verify SHA256SUMS before extraction."
 ''')
 for kind in ['aspnet','nextjs']:
     folder=templates/kind/'.github/workflows';folder.mkdir(parents=True,exist_ok=True)
@@ -250,8 +290,11 @@ jobs:
       packages: write
       actions: read
       id-token: write
-    uses: Deploy-ryanl-in/personal-paas/.github/workflows/release.yml@'''+sha+'''
+    uses: '''+args.repository+'''/.github/workflows/release.yml@'''+sha+'''
     with:
+      deployment-url: '''+args.deployment_url+'''
+      domain: '''+args.domain+'''
+      platform-repository: '''+args.repository+'''
       platform-sha: '''+sha+'''
     secrets:
       PAAS_SECRETS: ${{ secrets.PAAS_SECRETS }}
@@ -275,8 +318,9 @@ permissions:
   id-token: write
 jobs:
   operate:
-    uses: Deploy-ryanl-in/personal-paas/.github/workflows/operate.yml@'''+sha+'''
+    uses: '''+args.repository+'''/.github/workflows/operate.yml@'''+sha+'''
     with:
+      deployment-url: '''+args.deployment_url+'''
       action: ${{ inputs.action }}
       service: ${{ inputs.service }}
       release-id: ${{ inputs.release-id }}

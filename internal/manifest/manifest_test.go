@@ -107,3 +107,28 @@ func TestAutoBindingsSurviveRenameAndExplicitReservedRepositoryName(t *testing.T
 		t.Fatal("new automatic domain used infrastructure namespace")
 	}
 }
+
+func TestReusableNamespaceAndReservedControl(t *testing.T) {
+	m, _ := Decode([]byte(valid))
+	id := Identity{ID: 123, Owner: "RyanStanLin", Name: "Private_Demo"}
+	r, e := Resolve(m, id, nil, "example.net", "ship.example.net")
+	if e != nil || r.Services["web"].Domain != "private-demo.example.net" {
+		t.Fatal(r, e)
+	}
+	for _, domain := range []string{"ship.example.net", "private-demo.ryanl.in", "a.b.example.net", "ping.example.net"} {
+		s := m.Services["web"]
+		s.Domain = domain
+		m.Services["web"] = s
+		if ValidateDeclaredDomains(m, "example.net", "ship.example.net") == nil {
+			t.Fatal("accepted", domain)
+		}
+		if _, e := Resolve(m, id, nil, "example.net", "ship.example.net"); e == nil {
+			t.Fatal("resolved forbidden domain", domain)
+		}
+	}
+	id.Name = "ship"
+	m, _ = Decode([]byte(valid))
+	if _, e := Resolve(m, id, nil, "example.net", "ship.example.net"); e == nil {
+		t.Fatal("auto route captured controller")
+	}
+}

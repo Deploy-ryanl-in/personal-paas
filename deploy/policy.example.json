@@ -1,12 +1,21 @@
 {
   "audience": "https://deploy.ryanl.in",
-  "ownerId": "337720882",
-  "owner": "Deploy-ryanl-in",
   "repositoryAllowlist": [],
   "workflows": {},
   "databaseImages": {
     "postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba": "postgres",
     "redis:8.2.2-bookworm@sha256:4521b581dbddea6e7d81f8fe95ede93f5648aaa66a9dacd581611bf6fe7527bd": "redis"
   },
-  "helperImage": "alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0"
+  "helperImage": "alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0",
+  "domain": "ryanl.in",
+  "owners": [
+    {
+      "id": "93820487",
+      "login": "RyanStanLin"
+    },
+    {
+      "id": "337720882",
+      "login": "Deploy-ryanl-in"
+    }
+  ]
 }

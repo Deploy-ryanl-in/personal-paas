@@ -1,6 +1,6 @@
 # Personal PaaS
 
-Go controller + SQLite with encrypted secrets + rootless Docker + Traefik File Provider for `ryanl.in`.
+Go controller + SQLite with encrypted secrets + rootless Docker + Traefik File Provider with configurable domain and account/organization bindings.
 
 Installed on the single VPS. Actual GitHub Actions, private-template and VPS acceptance evidence is recorded in [docs/acceptance.md](docs/acceptance.md).
 
@@ -16,7 +16,7 @@ New repositories use the pinned reusable workflows. No SSH deployment identity o
 
 ## Create and develop an application
 
-1. Open one of the template links above and select **Use this template → Create a new repository**. Choose `Deploy-ryanl-in` as owner; public and private repositories both work.
+1. Open one of the template links above and select **Use this template → Create a new repository**. Choose `RyanStanLin` or `Deploy-ryanl-in` as owner; public and private repositories both work.
 2. Clone your new repository locally and follow its language-specific README. The initial commit deploys the default starter automatically.
 3. Edit application code, commit and push to `main`. Default CI validates/tests, builds an immutable GHCR image and deploys through GitHub OIDC. No repository SSH key, DNS token or default application secret is needed.
 4. Open `https://<repository-name>.ryanl.in`. The Actions summary reports the actual domain, commit and release. Subsequent `git pull` synchronizes your independent repository.
@@ -38,3 +38,5 @@ Requires Go 1.27.1. Run `go test ./...`, `go vet ./...`, and `go build ./cmd/paa
 768 MiB is a hard aggregate container memory reservation budget, including candidate releases. Databases keep one stable container and volume. Web containers coexist during replacement. Workers stop before replacement. If the candidate cannot fit, the running release is retained and the workflow fails visibly.
 
 There is one production stack per immutable GitHub repository ID. A repository rename keeps its initially bound automatic domain. Only one-label application subdomains of `ryanl.in` are allowed; infrastructure names are reserved.
+
+Clean VPS installation and rebinding: see [install/reinstall from zero](docs/reinstall.md). Both personal accounts and organizations are authorized by immutable owner ID; no per-repository allowlist is needed under a trusted owner.

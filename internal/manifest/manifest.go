@@ -267,21 +267,33 @@ func AutoName(name string) (string, error) {
 
 // CI can validate explicit domains without knowing the VPS's immutable auto bindings.
 // Resolving auto names and detecting existing domain ownership remain server decisions.
-func ValidateDeclaredDomains(m Manifest) error {
+func namespace(options []string) (string, string) {
+	domain, control := "ryanl.in", "deploy.ryanl.in"
+	if len(options) > 0 {
+		domain = options[0]
+	}
+	if len(options) > 1 {
+		control = options[1]
+	}
+	return domain, control
+}
+func ValidateDeclaredDomains(m Manifest, options ...string) error {
+	domain, control := namespace(options)
 	domains := map[string]bool{}
 	for _, s := range m.Services {
 		if s.Type != "web" || s.Domain == "auto" {
 			continue
 		}
-		p := strings.TrimSuffix(s.Domain, ".ryanl.in")
-		if s.Domain != p+".ryanl.in" || !dns.MatchString(p) || forbidden[p] || domains[s.Domain] {
+		p := strings.TrimSuffix(s.Domain, "."+domain)
+		if s.Domain != p+"."+domain || s.Domain == control || !dns.MatchString(p) || forbidden[p] || domains[s.Domain] {
 			return errors.New("domain outside allowed namespace, reserved, or duplicate")
 		}
 		domains[s.Domain] = true
 	}
 	return nil
 }
-func Resolve(m Manifest, id Identity, existing map[string]string) (Manifest, error) {
+func Resolve(m Manifest, id Identity, existing map[string]string, options ...string) (Manifest, error) {
+	domain, control := namespace(options)
 	if m.Name == "auto" {
 		if existing["__name"] != "" {
 			m.Name = existing["__name"]
@@ -306,11 +318,11 @@ func Resolve(m Manifest, id Identity, existing map[string]string) (Manifest, err
 				if e != nil {
 					return m, e
 				}
-				s.Domain = v + ".ryanl.in"
+				s.Domain = v + "." + domain
 			}
 		}
-		p := strings.TrimSuffix(s.Domain, ".ryanl.in")
-		if s.Domain != p+".ryanl.in" || !dns.MatchString(p) || forbidden[p] || domains[s.Domain] {
+		p := strings.TrimSuffix(s.Domain, "."+domain)
+		if s.Domain != p+"."+domain || s.Domain == control || !dns.MatchString(p) || forbidden[p] || domains[s.Domain] {
 			return m, errors.New("domain outside allowed namespace, reserved, or duplicate")
 		}
 		domains[s.Domain] = true

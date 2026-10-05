@@ -11,13 +11,18 @@ import (
 )
 
 type Proxy struct {
-	Directory string
-	APIURL    string
-	Docker    *Docker
+	Directory     string
+	APIURL        string
+	ControlDomain string
+	Docker        *Docker
 }
 
 func (p *Proxy) Write(ctx context.Context, releases []store.Release) error {
-	routers := map[string]any{"control": map[string]any{"rule": "Host(`deploy.ryanl.in`)", "entryPoints": []string{"websecure"}, "service": "control", "tls": map[string]any{}, "middlewares": []string{"api-limit"}}}
+	control := p.ControlDomain
+	if control == "" {
+		control = "deploy.ryanl.in"
+	}
+	routers := map[string]any{"control": map[string]any{"rule": "Host(`" + control + "`)", "entryPoints": []string{"websecure"}, "service": "control", "tls": map[string]any{}, "middlewares": []string{"api-limit"}}}
 	services := map[string]any{"control": map[string]any{"loadBalancer": map[string]any{"servers": []any{map[string]any{"url": p.APIURL}}}}}
 	for _, r := range releases {
 		for n, s := range r.Config.Services {

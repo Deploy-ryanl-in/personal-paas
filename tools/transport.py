@@ -1,6 +1,9 @@
 """This code is embedded in trusted reusable workflow steps, not fetched from the app."""
-import json, os, time, urllib.request, urllib.error, pathlib, sys
-BASE='https://deploy.ryanl.in'
+import json, os, time, urllib.request, urllib.error, pathlib, sys, urllib.parse
+BASE=os.environ.get('PAAS_URL','https://deploy.ryanl.in')
+origin=urllib.parse.urlsplit(BASE)
+if origin.scheme!='https' or not origin.hostname or origin.username or origin.password or origin.port or origin.path or origin.query or origin.fragment:
+    raise ValueError('deployment URL must be an HTTPS origin')
 class TransientRequestError(RuntimeError):pass
 def request(url,method='GET',body=None,token=None,binary=False):
     headers={'Accept':'application/json','User-Agent':'Ryanl-Personal-PaaS/1.0 (+https://github.com/Deploy-ryanl-in/personal-paas)'}
@@ -16,7 +19,7 @@ def request(url,method='GET',body=None,token=None,binary=False):
     except (urllib.error.URLError,TimeoutError) as e:
         raise TransientRequestError('API temporarily unreachable') from None
 def oidc():
-    url=os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']+'&audience=https%3A%2F%2Fdeploy.ryanl.in'
+    url=os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']+'&audience='+urllib.parse.quote(BASE,safe='')
     return request(url,token=os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN'])['value']
 def api(path,method='GET',body=None,binary=False):
     for attempt in range(6):

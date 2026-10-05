@@ -70,6 +70,6 @@ ENTRYPOINT ["/app/docker-entrypoint.sh"]
 ''')
 (templates/'nextjs/public').mkdir(exist_ok=True)
 (templates/'nextjs/public/sample.png').write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII='))
-policy={'audience':'https://deploy.ryanl.in','ownerId':'337720882','owner':'Deploy-ryanl-in','repositoryAllowlist':[],'workflows':{},'databaseImages':{images['postgres']:'postgres',images['redis']:'redis'},'helperImage':images['alpine']}
+policy={'audience':'https://deploy.ryanl.in','domain':'ryanl.in','owners':[{'id':'93820487','login':'RyanStanLin'},{'id':'337720882','login':'Deploy-ryanl-in'}],'repositoryAllowlist':[],'workflows':{},'databaseImages':{images['postgres']:'postgres',images['redis']:'redis'},'helperImage':images['alpine']}
 (root/'deploy').mkdir(exist_ok=True);(root/'deploy/policy.example.json').write_text(json.dumps(policy,indent=2)+'\n')
 print('Generated strict schema, manifests, examples, pinned Dockerfiles and policy.')

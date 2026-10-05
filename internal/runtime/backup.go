@@ -131,7 +131,7 @@ func (b *Backup) Create(ctx context.Context, r store.Release) (string, error) {
 	}
 	f.Close()
 	dest := filepath.Join(b.Directory, id+".tar.age")
-	cmd := exec.CommandContext(ctx, "/usr/local/bin/age", "--encrypt", "--recipient", b.Recipient, "--output", dest, filepath.Join(dir, "bundle.tar"))
+	cmd := exec.CommandContext(ctx, "/usr/bin/age", "--encrypt", "--recipient", b.Recipient, "--output", dest, filepath.Join(dir, "bundle.tar"))
 	cmd.Stderr = io.Discard
 	if err = cmd.Run(); err != nil {
 		os.Remove(dest)
@@ -177,7 +177,7 @@ func (b *Backup) restoreTo(ctx context.Context, e *Engine, current, desired stor
 		return err
 	}
 	defer os.RemoveAll(dir)
-	cmd := exec.CommandContext(ctx, "/usr/local/bin/age", "--decrypt", "--identity", b.Identity, p)
+	cmd := exec.CommandContext(ctx, "/usr/bin/age", "--decrypt", "--identity", b.Identity, p)
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return err

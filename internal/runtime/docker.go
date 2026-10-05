@@ -59,7 +59,7 @@ type Container struct {
 }
 
 func (d *Docker) Command(ctx context.Context, args ...string) *exec.Cmd {
-	c := exec.CommandContext(ctx, "/usr/bin/docker", append([]string{"--host", d.Socket, "--config", d.RegistryConfig}, args...)...)
+	c := exec.CommandContext(ctx, "docker", append([]string{"--host", d.Socket, "--config", d.RegistryConfig}, args...)...)
 	return c
 }
 func (d *Docker) Run(ctx context.Context, args ...string) ([]byte, error) {

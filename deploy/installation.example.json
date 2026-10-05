@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "domain": "ryanl.in",
+  "controlSubdomain": "deploy",
+  "originIPv4": "23.169.184.53",
+  "cloudflareZoneId": "0a50a121d5374b8a864a31a8ec4e12a1",
+  "platformRepository": "Deploy-ryanl-in/personal-paas",
+  "platformSha": "372999fbd35273b7c3366a350bc4a47515396938",
+  "owners": [
+    {"id": "93820487", "login": "RyanStanLin", "type": "User"},
+    {"id": "337720882", "login": "Deploy-ryanl-in", "type": "Organization"}
+  ],
+  "repositoryAllowlist": [],
+  "previousWorkflowShas": []
+}

@@ -21,3 +21,30 @@ func TestClaimsBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestPersonalAndOrganizationBindings(t *testing.T) {
+	now := time.Now()
+	sha := "0123456789012345678901234567890123456789"
+	ref := "NewOwner/platform/.github/workflows/release.yml@" + sha
+	v := Verifier{Policy: Policy{Audience: "https://ship.example.net", Domain: "example.net", Owners: []Owner{{ID: "93820487", Login: "RyanStanLin"}, {ID: "337720882", Login: "Deploy-ryanl-in"}}, Workflows: map[string]string{ref: sha}}}
+	if err := v.Policy.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c := Claims{Iss: Issuer, Aud: v.Policy.Audience, Exp: now.Add(5 * time.Minute).Unix(), Iat: now.Unix(), Nbf: now.Unix(), JTI: "personal", RepositoryID: "42", Repository: "RyanStanLin/private-demo", Owner: "RyanStanLin", OwnerID: "93820487", Ref: "refs/heads/main", SHA: sha, Event: "push", RunID: "22", WorkflowRef: ref, WorkflowSHA: sha}
+	if err := v.ValidateClaims(c, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []func(*Claims){func(c *Claims) { c.OwnerID = "337720882" }, func(c *Claims) { c.Owner = "Other"; c.Repository = "Other/private-demo" }, func(c *Claims) { c.OwnerID = "999" }, func(c *Claims) { c.Aud = "https://deploy.ryanl.in" }, func(c *Claims) { c.Event = "pull_request" }} {
+		bad := c
+		change(&bad)
+		if v.ValidateClaims(bad, now) == nil {
+			t.Fatal("accepted mismatched personal identity")
+		}
+	}
+	c.Owner = "Deploy-ryanl-in"
+	c.OwnerID = "337720882"
+	c.Repository = "Deploy-ryanl-in/other"
+	if err := v.ValidateClaims(c, now); err != nil {
+		t.Fatal(err)
+	}
+}

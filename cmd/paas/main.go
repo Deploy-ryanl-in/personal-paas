@@ -33,9 +33,7 @@ func main() {
 	must(e)
 	var policy auth.Policy
 	must(json.Unmarshal(b, &policy))
-	if len(policy.Workflows) == 0 {
-		fatal("approved workflow SHA is required")
-	}
+	must(policy.Validate())
 	key, e := os.ReadFile(filepath.Join(*state, "state.key"))
 	must(e)
 	db, e := store.Open(filepath.Join(*state, "state.db"), key)
@@ -49,7 +47,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 	must(d.AssertRootless(ctx))
-	proxy := &runtime.Proxy{Directory: *routes, APIURL: "http://127.0.0.1:9080", Docker: d}
+	proxy := &runtime.Proxy{Directory: *routes, APIURL: "http://127.0.0.1:9080", Docker: d, ControlDomain: policy.ControlDomain()}
 	backup := &runtime.Backup{Directory: filepath.Join(*state, "backups"), Recipient: os.Getenv("AGE_RECIPIENT"), Identity: filepath.Join(*state, "backup.agekey"), Docker: d, Store: db}
 	must(os.MkdirAll(backup.Directory, 0700))
 	engine := &runtime.Engine{Store: db, Docker: d, Proxy: proxy, ReadyTimeout: 120 * time.Second, Observation: 60 * time.Second, Budget: 768, Backup: backup}
@@ -77,6 +75,8 @@ func validate(args []string) {
 	id := f.Int64("repository-id", 0, "immutable ID")
 	owner := f.String("owner", "", "owner")
 	name := f.String("name", "", "repository name")
+	domain := f.String("domain", "ryanl.in", "allowed DNS namespace")
+	control := f.String("control-domain", "deploy.ryanl.in", "reserved control hostname")
 	f.Parse(args)
 	b, e := os.ReadFile(*file)
 	must(e)
@@ -87,7 +87,7 @@ func validate(args []string) {
 		fatal("repository-id required")
 	}
 	identity := manifest.Identity{ID: *id, Owner: *owner, Name: *name}
-	must(manifest.ValidateDeclaredDomains(m))
+	must(manifest.ValidateDeclaredDomains(m, *domain, *control))
 	rows := []map[string]any{}
 	for n, s := range m.Services {
 		if m.State == "present" && s.Build != nil {

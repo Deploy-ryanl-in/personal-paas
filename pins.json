@@ -30,6 +30,28 @@
       "archive": "lego_v5.5.2_linux_amd64.tar.gz",
       "sha256": "2a35505089e7772c92e1e9ac144df91151ef2eca8568630db0ff91fca06d9bef",
       "url": "https://github.com/go-acme/lego/releases/download/v5.5.2/lego_v5.5.2_linux_amd64.tar.gz"
+    },
+    "docker": {
+      "version": "29.8.0",
+      "archive": "docker-29.8.0.tgz",
+      "url": "https://download.docker.com/linux/static/stable/x86_64/docker-29.8.0.tgz",
+      "sha256": "cc21815cf1e2efed867dc9c8b96b46ffed8ea176ffab32b0aacb54726ded8f25"
+    },
+    "docker-rootless-extras": {
+      "version": "29.8.0",
+      "archive": "docker-rootless-extras-29.8.0.tgz",
+      "url": "https://download.docker.com/linux/static/stable/x86_64/docker-rootless-extras-29.8.0.tgz",
+      "sha256": "146bce153a403e2e52587c6c50faf1f608b72dc5cbb7e8c000924c84626137ce"
+    }
+  },
+  "templates": {
+    "aspnet": {
+      "repository": "Deploy-ryanl-in/template-aspnet",
+      "sha": "e60b3c54f639b5baa58895337f0b81b7cc39d81a"
+    },
+    "nextjs": {
+      "repository": "Deploy-ryanl-in/template-nextjs",
+      "sha": "4bd3d03562540a7e886bd6c9ccaafabeef4375f8"
     }
   }
 }
