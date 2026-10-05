@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Complete, repeatable Debian VPS installer. Run from an immutable reviewed release bundle."""
-import argparse,hashlib,json,os,pathlib,pwd,shutil,subprocess,tarfile,tempfile,time,urllib.request
+import argparse,fcntl,hashlib,json,os,pathlib,pwd,shutil,subprocess,tarfile,tempfile,time,urllib.request
 from configuration import read,validate,policy
 from preflight import check
 p=argparse.ArgumentParser()
@@ -9,6 +9,9 @@ p.add_argument('--credentials',required=True,type=pathlib.Path)
 p.add_argument('--configure-cloudflare',action='store_true',help='Create/update the wildcard and set Full (strict), with a separate setup token if needed')
 a=p.parse_args()
 if os.geteuid()!=0:raise SystemExit('run as root for one-time provisioning')
+lock=open('/run/lock/personal-paas-install.lock','a')
+try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+except BlockingIOError:raise SystemExit('another platform installation is running')
 c=validate(read(a.config));credentials=read(a.credentials)
 if a.credentials.stat().st_mode & 0o077:raise SystemExit('credential bundle must be mode 600')
 required={'githubAppId','githubAppPrivateKey','ghcrUsername','ghcrReadToken','cloudflareDnsToken','acmeEmail'}
@@ -40,7 +43,7 @@ def write(path,content,mode=0o644,owner=0,group=0):
     path.chmod(mode);os.chown(path,owner,group)
 def run(args,**kwargs):subprocess.run(args,check=True,**kwargs)
 def userrun(args):
-    return subprocess.check_output(['runuser','-u','paas-runtime','--','env','XDG_RUNTIME_DIR=/run/user/'+str(uid),'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/'+str(uid)+'/bus','PATH=/opt/personal-paas/docker/bin:/usr/local/bin:/usr/bin:/bin']+args,text=True)
+    return subprocess.check_output(['runuser','-u','paas-runtime','--','env','XDG_RUNTIME_DIR=/run/user/'+str(uid),'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/'+str(uid)+'/bus','PATH=/opt/personal-paas/docker/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin']+args,text=True)
 cache=pathlib.Path('/var/cache/personal-paas');cache.mkdir(parents=True,exist_ok=True)
 for name,entry in pins['binaries'].items():
     archive=cache/entry['archive']
@@ -64,9 +67,9 @@ before={n:pathlib.Path(n).read_bytes() if pathlib.Path(n).exists() else None for
 run(['python3',str(root/'deploy/credential-install.py'),str(a.credentials.resolve()),str(a.config.resolve())])
 for n in credential_paths:
     if before[n]!=pathlib.Path(n).read_bytes():changed.add(n)
-for source in (root/'deploy').glob('paas-*'):
+for source in list((root/'deploy').glob('*.service'))+list((root/'deploy').glob('*.timer')):
     if source.suffix not in ['.service','.timer']:continue
-    if source.name=='paas-runtime.service':target='/var/lib/paas-runtime/.config/systemd/user/personal-paas.service';owner=uid;group=user.pw_gid
+    if source.name=='personal-paas.service':target='/var/lib/paas-runtime/.config/systemd/user/personal-paas.service';owner=uid;group=user.pw_gid
     else:target='/etc/systemd/system/'+source.name;owner=group=0
     write(target,source.read_bytes(),owner=owner,group=group)
 write('/etc/paas-traefik/traefik.yml',(root/'deploy/traefik.yml').read_bytes(),0o640,0,__import__('grp').getgrnam('paas-proxy').gr_gid)
@@ -80,7 +83,7 @@ info=json.loads(userrun(['docker','--host','unix:///run/user/'+str(uid)+'/docker
 if not any('rootless' in v for v in info['SecurityOptions']) or info['CgroupVersion']!='2' or not all(info[n] for n in ['MemoryLimit','CpuCfsQuota','PidsLimit']):raise SystemExit('rootless cgroup memory/CPU/PID enforcement missing')
 # Obtain the certificate before exposing any HTTPS route or changing DNS.
 run(['systemctl','start','paas-acme.service'])
-run(['systemctl','enable','--now','paas-acme.timer','paas-origin-firewall.service','paas-origin-firewall-refresh.timer'])
+run(['systemctl','enable','--now','paas-acme.timer','paas-origin-firewall.service','paas-origin-firewall.timer'])
 if changed.intersection(['/usr/local/bin/paas','/etc/personal-paas/policy.json','/var/lib/paas-runtime/.config/systemd/user/personal-paas.service']+credential_paths):
     userrun(['systemctl','--user','restart','personal-paas'])
 userrun(['systemctl','--user','enable','--now','personal-paas'])

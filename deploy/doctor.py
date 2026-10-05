@@ -6,9 +6,9 @@ from preflight import check
 p=argparse.ArgumentParser();p.add_argument('--credentials',type=pathlib.Path);p.add_argument('--resource-probe',action='store_true');a=p.parse_args()
 if os.geteuid()!=0:raise SystemExit('run as root for host inspection')
 c=validate(read('/etc/personal-paas/installation.json'));policy=read('/etc/personal-paas/policy.json');uid=pwd.getpwnam('paas-runtime').pw_uid
-prefix=['runuser','-u','paas-runtime','--','env','XDG_RUNTIME_DIR=/run/user/'+str(uid),'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/'+str(uid)+'/bus','PATH=/opt/personal-paas/docker/bin:/usr/local/bin:/usr/bin:/bin']
+prefix=['runuser','-u','paas-runtime','--','env','XDG_RUNTIME_DIR=/run/user/'+str(uid),'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/'+str(uid)+'/bus','PATH=/opt/personal-paas/docker/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin']
 def user(args):return subprocess.check_output(prefix+args,text=True)
-for service in ['paas-traefik','paas-acme.timer','paas-origin-firewall','paas-origin-firewall-refresh.timer']:
+for service in ['paas-traefik','paas-acme.timer','paas-origin-firewall','paas-origin-firewall.timer']:
  subprocess.run(['systemctl','is-active','--quiet',service],check=True)
 for service in ['docker','personal-paas']:user(['systemctl','--user','is-active','--quiet',service])
 info=json.loads(user(['docker','--host','unix:///run/user/'+str(uid)+'/docker.sock','info','--format','{{json .}}']))

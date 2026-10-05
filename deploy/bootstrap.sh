@@ -13,7 +13,11 @@ test ! -d /etc/x-ui || cp -a /etc/x-ui "$baseline/x-ui-config"
 test ! -f /usr/local/x-ui/bin/config.json || cp -a /usr/local/x-ui/bin/config.json "$baseline/xray-config.json"
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l
 apt-get update
-apt-get install -y --no-install-recommends uidmap slirp4netns dbus-user-session acl age ca-certificates iptables nftables openssl curl
+apt-get install -y --no-install-recommends uidmap slirp4netns dbus-user-session acl age ca-certificates iptables nftables kmod openssl curl
+# Load the networking module before unprivileged Docker checks; keep it available at boot.
+modprobe nf_tables
+install -d -m 755 /etc/modules-load.d
+printf '%s\n' nf_tables > /etc/modules-load.d/personal-paas.conf
 getent group paas-proxy >/dev/null || groupadd --system paas-proxy
 getent group paas-tls >/dev/null || groupadd --system paas-tls
 id paas-runtime >/dev/null 2>&1 || useradd --create-home --home-dir /var/lib/paas-runtime --shell /bin/bash paas-runtime

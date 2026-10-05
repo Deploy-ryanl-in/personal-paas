@@ -19,7 +19,7 @@ write('/var/lib/paas-runtime/github-app.pem',data['githubAppPrivateKey'],user.pw
 registry={'auths':{'ghcr.io':{'auth':base64.b64encode((safe(data['ghcrUsername'])+':'+safe(data['ghcrReadToken'])).encode()).decode()}}}
 write('/var/lib/paas-runtime/docker/config.json',json.dumps(registry),user.pw_uid,user.pw_gid)
 recipient=subprocess.check_output(['age-keygen','-y','/var/lib/paas-runtime/backup.agekey'],text=True).strip()
-write('/etc/personal-paas/runtime.env',f'DOCKER_HOST=unix:///run/user/{user.pw_uid}/docker.sock\nGITHUB_APP_ID={safe(str(data["githubAppId"]))}\nAGE_RECIPIENT={recipient}\nPATH=/opt/personal-paas/docker/bin:/usr/local/bin:/usr/bin:/bin\n',0,user.pw_gid,0o640)
+write('/etc/personal-paas/runtime.env',f'DOCKER_HOST=unix:///run/user/{user.pw_uid}/docker.sock\nGITHUB_APP_ID={safe(str(data["githubAppId"]))}\nAGE_RECIPIENT={recipient}\nPATH=/opt/personal-paas/docker/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\n',0,user.pw_gid,0o640)
 # Preserve a pre-existing cert name when upgrading the original installation.
 certname='paas-wildcard'
 old=pathlib.Path('/etc/paas-acme/dns.env')
