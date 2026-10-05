@@ -26,5 +26,5 @@ for kind in ['aspnet','nextjs']:
   file.write_text(text)
  owners=', '.join(o['login'] for o in c['owners'])
  (target/'PLATFORM.md').write_text('Bound to '+audience(c)+' and '+c['platformRepository']+' at '+c['platformSha']+'.\n\nTrusted owners: '+owners+'.\nCreate an independent repository from this template, clone, develop, and push. Default domain: <new-repository-name>.'+c['domain']+'. No per-repository DNS or credentials are required for the default web example.\n')
- file=target/'README.md';text=file.read_text().replace('ryanl.in',c['domain']).replace('owner 选择 `Deploy-ryanl-in`','owner 选择 '+owners).replace('https://github.com/Deploy-ryanl-in/你的仓库.git','https://github.com/'+c['owners'][0]['login']+'/你的仓库.git');file.write_text(text)
+ file=target/'README.md';text=file.read_text().replace('个人账号仓库需要 repository ID 白名单；组织内新仓库自动接入。','安装时绑定的个人账号和组织内新仓库均自动接入，无需逐仓库白名单。').replace('组织内新仓库自动接入；个人仓库需 repository ID 白名单。','安装时绑定的个人账号和组织内新仓库均自动接入，无需逐仓库白名单。').replace('ryanl.in',c['domain']).replace('owner 选择 `Deploy-ryanl-in`','owner 选择 '+owners).replace('https://github.com/Deploy-ryanl-in/你的仓库.git','https://github.com/'+c['owners'][0]['login']+'/你的仓库.git');file.write_text(text)
 print('Prepared both templates with immutable workflows and '+c['domain']+' defaults. Publish these directories as template repositories.')

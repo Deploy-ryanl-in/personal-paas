@@ -49,7 +49,6 @@ if ! test -f /var/lib/paas-runtime/backup.agekey; then
   chown paas-runtime:paas-runtime /var/lib/paas-runtime/backup.agekey
   chmod 600 /var/lib/paas-runtime/backup.agekey
 fi
-loginctl enable-linger paas-runtime
 runtime_uid=$(id -u paas-runtime)
 install -d -m 755 "/etc/systemd/system/user@${runtime_uid}.service.d"
 delegate="/etc/systemd/system/user@${runtime_uid}.service.d/paas-delegate.conf"
@@ -63,5 +62,6 @@ Delegate=cpu cpuset io memory pids
 UNIT
 fi
 systemctl daemon-reload
+loginctl enable-linger paas-runtime
 systemctl start "user@${runtime_uid}.service"
 echo "Rootless runtime UID: ${runtime_uid}; baseline: ${baseline}"

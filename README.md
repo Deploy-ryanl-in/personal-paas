@@ -25,7 +25,7 @@ Keep `paas.json` declarative. `auto` binds the new repository identity on its fi
 
 For management, choose **Actions → PaaS operations → Run workflow**. Status, history, logs, redeploy, rollback, stop, backup/download, restore and same-major database maintenance are available there. `state: absent` plus push removes containers and routes while retaining volumes; this path skips image builds.
 
-Personal-account repositories require an operator-added immutable repository ID allowlist entry. Existing generated repositories remain independent of template changes: reusable workflow updates need a reviewed SHA pin and matching server trust policy.
+All repositories under either bound owner (RyanStanLin or Deploy-ryanl-in) are automatically supported. Other accounts require explicit immutable owner or repository ID enrollment. Existing generated repositories remain independent of template changes: reusable workflow updates need a reviewed SHA pin and matching server trust policy.
 
 ## Development
 

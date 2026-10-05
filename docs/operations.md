@@ -39,11 +39,13 @@ A manual runtime operation advances the repository’s run ordering barrier; an 
 
 ## Controller and infrastructure recovery
 
-The runtime uses user systemd services `docker.service` and `personal-paas.service` under UID 1000; system Traefik is `paas-traefik.service`. To inspect or restart the controller as an operator:
+The runtime uses user systemd services `docker.service` and `personal-paas.service` under the dynamically allocated runtime UID; system Traefik is `paas-traefik.service`. To inspect or restart the controller as an operator:
 
 ```sh
-runuser -u paas-runtime -- env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus systemctl --user status personal-paas
-runuser -u paas-runtime -- env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus systemctl --user restart personal-paas
+runtime_uid=$(id -u paas-runtime)
+runuser -u paas-runtime -- env XDG_RUNTIME_DIR=/run/user/$runtime_uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$runtime_uid/bus systemctl --user status personal-paas
+runtime_uid=$(id -u paas-runtime)
+runuser -u paas-runtime -- env XDG_RUNTIME_DIR=/run/user/$runtime_uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$runtime_uid/bus systemctl --user restart personal-paas
 journalctl _COMM=paas --since '10 minutes ago'
 ```
 
