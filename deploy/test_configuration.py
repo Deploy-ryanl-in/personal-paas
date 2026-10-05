@@ -16,3 +16,26 @@ class ConfigurationTests(unittest.TestCase):
   with self.assertRaises(ValueError):validate(self.c)
  def test_duplicate_keys(self):
   with self.assertRaises(ValueError):json.loads('{"domain":"a.net","domain":"b.net"}',object_pairs_hook=unique)
+
+class CredentialAndPreflightTests(unittest.TestCase):
+ def setUp(self):
+  self.c=json.loads((pathlib.Path(__file__).parent/'installation.example.json').read_text())
+  self.credentials={'ghcrUsername':'example','ghcrReadToken':'readonly-token','cloudflareDnsToken':'dns-token','acmeEmail':'ops@example.net'}
+ def test_default_job_token_mode_needs_no_app(self):
+  from unittest.mock import patch
+  from preflight import check
+  identities={o['login']:o for o in self.c['owners']}
+  def get(path,token=None):
+   self.assertIsNone(token);o=identities[path.removeprefix('/users/')]
+   return {'id':int(o['id']),'type':o['type']}
+  with patch('preflight.github_get',side_effect=get):check(self.c,self.credentials)
+  from configuration import policy
+  self.assertTrue(policy(self.c,{'images':{'postgres':'p','redis':'r','alpine':'a'}})['allowJobToken'])
+ def test_identity_spoof_and_incomplete_app_rejected(self):
+  from unittest.mock import patch
+  from preflight import check
+  from configuration import validate_credentials
+  with patch('preflight.github_get',return_value={'id':999,'type':'User'}),self.assertRaises(ValueError):check(self.c,self.credentials)
+  with self.assertRaises(ValueError):validate_credentials(dict(self.credentials,githubAppId='123'))
+  self.c['repositoryVerification']='app'
+  with self.assertRaises(ValueError):check(self.c,self.credentials)

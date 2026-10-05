@@ -187,9 +187,11 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      actions: read
     steps:
       - name: Execute fixed operation
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PAAS_MODE: operation
           PAAS_URL: ${{ inputs.deployment-url }}
           OP_ACTION: ${{ inputs.action }}
@@ -316,6 +318,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  actions: read
 jobs:
   operate:
     uses: '''+args.repository+'''/.github/workflows/operate.yml@'''+sha+'''

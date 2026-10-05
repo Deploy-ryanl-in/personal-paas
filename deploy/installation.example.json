@@ -19,5 +19,6 @@
     }
   ],
   "repositoryAllowlist": [],
-  "previousWorkflowShas": []
+  "previousWorkflowShas": [],
+  "repositoryVerification": "job-token-or-app"
 }

@@ -23,6 +23,7 @@ for kind in ['aspnet','nextjs']:
   text=re.sub(r'^      (deployment-url|domain|platform-repository):.*\n','',text,flags=re.M)
   if name=='ci.yml':text=text.replace('      platform-sha:','      deployment-url: '+audience(c)+'\n      domain: '+c['domain']+'\n      platform-repository: '+c['platformRepository']+'\n      platform-sha:')
   else:text=text.replace('    with:\n','    with:\n      deployment-url: '+audience(c)+'\n',1)
+  if name=='operations.yml' and not re.search(r'^  actions: read$',text,re.M):text=text.replace('  id-token: write\n','  id-token: write\n  actions: read\n',1)
   file.write_text(text)
  owners=', '.join(o['login'] for o in c['owners'])
  (target/'PLATFORM.md').write_text('Bound to '+audience(c)+' and '+c['platformRepository']+' at '+c['platformSha']+'.\n\nTrusted owners: '+owners+'.\nCreate an independent repository from this template, clone, develop, and push. Default domain: <new-repository-name>.'+c['domain']+'. No per-repository DNS or credentials are required for the default web example.\n')

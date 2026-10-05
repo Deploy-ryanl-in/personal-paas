@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -39,10 +40,13 @@ func main() {
 	db, e := store.Open(filepath.Join(*state, "state.db"), key)
 	must(e)
 	defer db.DB.Close()
-	appKey, e := os.ReadFile(filepath.Join(*state, "github-app.pem"))
-	must(e)
-	rsaKey, e := github.LoadKey(appKey)
-	must(e)
+	var rsaKey *rsa.PrivateKey
+	if os.Getenv("GITHUB_APP_ID") != "" {
+		appKey, err := os.ReadFile(filepath.Join(*state, "github-app.pem"))
+		must(err)
+		rsaKey, err = github.LoadKey(appKey)
+		must(err)
+	}
 	d := &runtime.Docker{Socket: os.Getenv("DOCKER_HOST"), Private: filepath.Join(*state, "tmp"), RegistryConfig: filepath.Join(*state, "docker"), Helper: policy.HelperImage, HTTP: runtime.NoRedirectHTTP()}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()

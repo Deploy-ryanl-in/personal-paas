@@ -17,7 +17,7 @@ New repositories use the pinned reusable workflows. No SSH deployment identity o
 ## Create and develop an application
 
 1. Open one of the template links above and select **Use this template → Create a new repository**. Choose `RyanStanLin` or `Deploy-ryanl-in` as owner; public and private repositories both work.
-2. Clone your new repository locally and follow its language-specific README. The initial commit deploys the default starter automatically.
+2. Clone your new repository locally and follow its language-specific README.
 3. Edit application code, commit and push to `main`. Default CI validates/tests, builds an immutable GHCR image and deploys through GitHub OIDC. No repository SSH key, DNS token or default application secret is needed.
 4. Open `https://<repository-name>.ryanl.in`. The Actions summary reports the actual domain, commit and release. Subsequent `git pull` synchronizes your independent repository.
 
@@ -26,6 +26,8 @@ Keep `paas.json` declarative. `auto` binds the new repository identity on its fi
 For management, choose **Actions → PaaS operations → Run workflow**. Status, history, logs, redeploy, rollback, stop, backup/download, restore and same-major database maintenance are available there. `state: absent` plus push removes containers and routes while retaining volumes; this path skips image builds.
 
 All repositories under either bound owner (RyanStanLin or Deploy-ryanl-in) are automatically supported. Other accounts require explicit immutable owner or repository ID enrollment. Existing generated repositories remain independent of template changes: reusable workflow updates need a reviewed SHA pin and matching server trust policy.
+
+Current templates provide their deployment job's short-lived, read-only repository `GITHUB_TOKEN` for server-side source verification after OIDC authentication. Personal private repositories need no runtime App grant or per-repository credential. A legacy read-only App remains optional for older workflow pins. See [installation prerequisites](docs/reinstall.md).
 
 ## Development
 

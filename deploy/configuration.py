@@ -11,9 +11,23 @@ def unique(pairs):
 
 def read(path): return json.loads(Path(path).read_text(), object_pairs_hook=unique)
 
+def validate_credentials(c):
+    required={'ghcrUsername','ghcrReadToken','cloudflareDnsToken','acmeEmail'}
+    optional={'workflowSha','cloudflareSetupToken','githubAppId','githubAppPrivateKey'}
+    if not isinstance(c,dict) or required-set(c) or set(c)-required-optional:
+        raise ValueError('credential fields do not match')
+    for key in required | ({'cloudflareSetupToken'} & set(c)):
+        if not isinstance(c[key],str) or not re.fullmatch('[A-Za-z0-9_@.+:/=-]+',c[key]):
+            raise ValueError('invalid credential field: '+key)
+    if ('githubAppId' in c)!=('githubAppPrivateKey' in c):raise ValueError('App ID and PEM must be supplied together')
+    if 'githubAppId' in c:
+        if isinstance(c['githubAppId'],bool) or not re.fullmatch('[1-9][0-9]*',str(c['githubAppId'])):raise ValueError('invalid App ID')
+        if not isinstance(c['githubAppPrivateKey'],str) or not c['githubAppPrivateKey'].startswith('-----BEGIN '):raise ValueError('invalid App PEM')
+    return c
+
 def validate(c):
     required = {'schemaVersion','domain','controlSubdomain','originIPv4','cloudflareZoneId','platformRepository','platformSha','owners'}
-    optional = {'previousWorkflowShas','repositoryAllowlist'}
+    optional = {'previousWorkflowShas','repositoryAllowlist','repositoryVerification'}
     if set(c)-required-optional or required-set(c): raise ValueError('installation fields do not match schema')
     if type(c['schemaVersion']) is not int or c['schemaVersion'] != 1: raise ValueError('unsupported installation schema')
     label = r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?'
@@ -25,6 +39,7 @@ def validate(c):
     for sha in [c['platformSha']]+c.get('previousWorkflowShas',[]):
         if not re.fullmatch('[a-f0-9]{40}',sha): raise ValueError('full workflow commit SHA required')
     if not c['owners'] or not isinstance(c['owners'],list): raise ValueError('at least one owner required')
+    if c.get('repositoryVerification','job-token-or-app') not in ['job-token-or-app','app']:raise ValueError('invalid repository verification mode')
     ids, logins = set(), set()
     for owner in c['owners']:
         if set(owner) != {'id','login','type'} or owner['type'] not in ['User','Organization']: raise ValueError('invalid owner fields')
@@ -43,7 +58,7 @@ def policy(c, pins):
     for sha in [c['platformSha']]+c.get('previousWorkflowShas',[]):
         for name in ['release','operate']:
             refs[c['platformRepository']+'/.github/workflows/'+name+'.yml@'+sha] = sha
-    return {'audience':audience(c),'domain':c['domain'], 'owners':[{'id':o['id'],'login':o['login']} for o in c['owners']],
+    return {'audience':audience(c),'domain':c['domain'],'allowJobToken':c.get('repositoryVerification','job-token-or-app')=='job-token-or-app', 'owners':[{'id':o['id'],'login':o['login']} for o in c['owners']],
             'repositoryAllowlist':c.get('repositoryAllowlist',[]),'workflows':refs,
             'databaseImages':{pins['images'][n]:n for n in ['postgres','redis']},'helperImage':pins['images']['alpine']}
 

@@ -6,15 +6,16 @@ The supported production host is Debian 12/13 **amd64**, systemd, cgroup v2, wit
 
 Fork or reuse this public platform repository. CI produces a controller and installer release named `build-<full commit SHA>`; application images continue to build in GitHub Actions. Choose an explicitly reviewed commit, not `main` or `latest`, for every installation and template.
 
-Create a runtime GitHub App under your chosen personal account or organization:
+The default `repositoryVerification: "job-token-or-app"` supports public and private repositories under all bound owners **without installing a runtime GitHub App**. The approved reusable deployment/operation job supplies its short-lived, current-repository `GITHUB_TOKEN` with only **Contents: Read**, **Actions: Read** and implicit metadata read. The VPS first verifies OIDC, then independently reads the repository, manifest and workflow run through GitHub. The token exists only during that HTTP request; it is never written to state, logs or credentials. [GitHub token scope and lifetime](https://docs.github.com/en/actions/concepts/security/github_token).
 
-- Repository permissions: **Contents: Read**, **Actions: Read**, **Metadata: Read**. No write permissions, webhook, OAuth callback, or SSH key.
-- If binding more than its owning account, allow installation on other accounts (an existing private App uses **Advanced → Make public**). Public installability does not authorize deployment: the VPS separately checks immutable owner/repository IDs and approved workflow commits.
-- Install the App on **All repositories** for each trusted personal account and organization. GitHub requires an account/organization owner to approve installation. This covers future private repositories.
-- Download the RSA PEM and record the App ID. Create a GHCR credential with only `read:packages` that can read private images under **all configured owners**; organization SSO must authorize it if applicable.
+Create these one-time credentials:
+
+- A GHCR credential with only `read:packages` that can read private images under **all configured owners**; organization SSO must authorize it if applicable. Each package must inherit read access from its source repository, or explicitly grant the pull identity read access.
 - Create a Cloudflare token scoped to your zone: **Zone DNS Edit + Zone Read**, for ACME only. For optional automatic DNS/SSL bootstrap, supply a separate `cloudflareSetupToken` scoped to the same zone with **Zone DNS Edit + Zone Read + Zone Settings Edit**. The setup token is not installed in any long-running service.
 
 These external credentials cannot be created silently on a new account. They are explicit one-time prerequisites. No application repository receives these credentials.
+
+For compatibility with older workflows that do not send the job token, optionally supply `githubAppId` and `githubAppPrivateKey`. That App needs only **Contents: Read**, **Actions: Read**, **Metadata: Read** and installation on the owners using old workflows. A private organization-owned App can remain private and organization-only while personal repositories use the new job-token path. If you explicitly select `repositoryVerification: "app"`, every bound owner must install that App on all repositories; multi-account installation may require a publicly installable App and account-owner approval. Do not remove the optional App until all still-used legacy workflows have been upgraded.
 
 ## 2. Generate the installation configuration
 
@@ -29,7 +30,7 @@ python3 deploy/configure.py --config installation.json --output prepared \
 
 Review `prepared/installation.json` and `prepared/policy.json`. Owner login and immutable ID must both match. API hostname, domain validation, GHCR owner paths, ACME certificate and reusable workflows derive from this configuration. Existing repositories with identical names in different owners need explicit different domains; domain ownership is reserved by immutable repository ID.
 
-Copy `deploy/credentials.example.json` outside your checkout as `credentials.json`; fill in actual values, including the PEM as a JSON string. Use a password manager or a small local JSON-generation script to preserve PEM newlines. `chmod 600 credentials.json`. Never commit it. A `cloudflareSetupToken` is optional; an old credential bundle's `workflowSha` is accepted for compatibility but never controls or overwrites the trust policy.
+Copy `deploy/credentials.example.json` outside your checkout as `credentials.json`; fill in the registry/DNS token and certificate email. `chmod 600 credentials.json`. Never commit it. Optional App ID and PEM must be supplied together; preserve PEM newlines in its JSON string. A `cloudflareSetupToken` is optional; an old credential bundle's `workflowSha` is accepted for compatibility but never controls or overwrites the trust policy.
 
 ## 3. Install the verified release on a clean VPS
 
@@ -46,7 +47,7 @@ sudo python3 personal-paas/deploy/doctor.py \
   --credentials credentials.json --resource-probe
 ```
 
-The installer checks App permissions and installations **before** provisioning. It downloads checksum-pinned Docker/rootless extras, Traefik and lego from official vendors; creates separate runtime, proxy and ACME identities; delegates cgroup controllers; imports protected credentials; obtains a DNS-01 wildcard certificate; starts the controller and Traefik; then configures the one wildcard and Full (strict). It only filters 80/443 to Cloudflare source addresses. Installation input must match the bundle's commit and controller checksum.
+The installer checks immutable owner IDs/types and any supplied App's read-only permissions **before** provisioning. It downloads checksum-pinned Docker/rootless extras, Traefik and lego from official vendors; creates separate runtime, proxy and ACME identities using available UIDs; delegates cgroup controllers; imports protected credentials; obtains a DNS-01 wildcard certificate; starts the controller and Traefik; then configures the one wildcard and Full (strict). It only filters 80/443 to Cloudflare source addresses. Installation input must match the bundle's commit and controller checksum.
 
 If Cloudflare is already configured, omit `--configure-cloudflare`; verify `*.your-domain → VPS` is proxied and SSL is Full (strict). The DNS-only ACME token need not gain SSL settings permissions. All existing non-wildcard records remain untouched.
 

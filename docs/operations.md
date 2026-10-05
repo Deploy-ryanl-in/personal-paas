@@ -4,7 +4,7 @@ For clean VPS provisioning, account/organization rebinding and template regenera
 
 Runtime credentials live in `/var/lib/paas-runtime` with mode 0600 and owner `paas-runtime`:
 
-- `github-app.pem`: GitHub App RSA key; App requires Metadata read, Contents read, Actions read. Install for all repositories under each bound account/organization, including RyanStanLin and Deploy-ryanl-in.
+- `github-app.pem`: optional legacy GitHub App RSA key, with Metadata/Contents/Actions read only. Current templates use the deploy job's ephemeral repository read token after OIDC verification; no runtime App installation is required for personal or organization repositories. Keep the optional App only for owners still using older workflows.
 - `docker/config.json`: GHCR credentials using a classic PAT with only `read:packages`; the issuing user must have access to the private application packages.
 - `state.key`: random 32-byte state encryption key.
 - `backup.agekey`: age recovery identity. Keep an independent offline copy and its public recipient outside Git.

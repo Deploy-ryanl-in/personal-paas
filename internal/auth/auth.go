@@ -29,6 +29,7 @@ type Owner struct {
 
 type Policy struct {
 	Audience            string            `json:"audience"`
+	AllowJobToken       bool              `json:"allowJobToken"`
 	Domain              string            `json:"domain"`
 	Owners              []Owner           `json:"owners"`
 	OwnerID             string            `json:"ownerId"`

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Complete, repeatable Debian VPS installer. Run from an immutable reviewed release bundle."""
 import argparse,fcntl,hashlib,json,os,pathlib,pwd,shutil,subprocess,tarfile,tempfile,time,urllib.request
-from configuration import read,validate,policy
+from configuration import read,validate,policy,validate_credentials
 from preflight import check
 p=argparse.ArgumentParser()
 p.add_argument('--config',required=True,type=pathlib.Path)
@@ -12,10 +12,8 @@ if os.geteuid()!=0:raise SystemExit('run as root for one-time provisioning')
 lock=open('/run/lock/personal-paas-install.lock','a')
 try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
 except BlockingIOError:raise SystemExit('another platform installation is running')
-c=validate(read(a.config));credentials=read(a.credentials)
+c=validate(read(a.config));credentials=validate_credentials(read(a.credentials))
 if a.credentials.stat().st_mode & 0o077:raise SystemExit('credential bundle must be mode 600')
-required={'githubAppId','githubAppPrivateKey','ghcrUsername','ghcrReadToken','cloudflareDnsToken','acmeEmail'}
-if required-set(credentials) or set(credentials)-required-{'workflowSha','cloudflareSetupToken'}:raise SystemExit('credential fields do not match')
 root=pathlib.Path(__file__).resolve().parents[1];pins=read(root/'pins.json');bundle=read(root/'bundle.json')
 if bundle['commit']!=c['platformSha']:raise SystemExit('installation must match the reviewed bundle commit')
 binary=root/'bin/paas'
@@ -66,7 +64,11 @@ credential_paths=['/etc/personal-paas/runtime.env','/var/lib/paas-runtime/github
 before={n:pathlib.Path(n).read_bytes() if pathlib.Path(n).exists() else None for n in credential_paths}
 run(['python3',str(root/'deploy/credential-install.py'),str(a.credentials.resolve()),str(a.config.resolve())])
 for n in credential_paths:
-    if before[n]!=pathlib.Path(n).read_bytes():changed.add(n)
+    if before[n]!=(pathlib.Path(n).read_bytes() if pathlib.Path(n).exists() else None):changed.add(n)
+# Root creates the unit file, but every parent must be writable by the runtime user.
+# In particular, UID 1000 may already belong to an unrelated account.
+for parent in ['.config','.config/systemd','.config/systemd/user']:
+    run(['install','-d','-m','700','-o',str(uid),'-g',str(user.pw_gid),'/var/lib/paas-runtime/'+parent])
 for source in list((root/'deploy').glob('*.service'))+list((root/'deploy').glob('*.timer')):
     if source.suffix not in ['.service','.timer']:continue
     if source.name=='personal-paas.service':target='/var/lib/paas-runtime/.config/systemd/user/personal-paas.service';owner=uid;group=user.pw_gid

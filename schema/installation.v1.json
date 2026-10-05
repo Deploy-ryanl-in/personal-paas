@@ -85,6 +85,13 @@
           }
         }
       }
+    },
+    "repositoryVerification": {
+      "enum": [
+        "job-token-or-app",
+        "app"
+      ],
+      "default": "job-token-or-app"
     }
   }
 }

@@ -4,6 +4,8 @@ The repository is trusted to run its own application code, not to choose host Do
 
 OIDC requires GitHub JWKS RS256, the exact API audience, short lifetime, approved owner/repository ID, an authorized branch from the default-branch manifest, push/manual event, a verified run belonging to the repository, and an approved reusable workflow commit. Write requests consume token JTI once. Pull requests and forks cannot deploy.
 
+Current reusable deployment/operation jobs send their repository-scoped, short-lived read-only `GITHUB_TOKEN` over HTTPS. It is accepted only after OIDC verification and only when `allowJobToken` is enabled. The controller uses it for fixed GitHub read endpoints to verify the repository ID/owner, exact manifest and workflow run; it never caches or persists the token. Missing tokens fall back to an optional read-only runtime App for legacy workflows. A supplied read token alone does not authorize any API operation. [GitHub token scope and lifetime](https://docs.github.com/en/actions/concepts/security/github_token).
+
 Rootless Docker runs under `paas-runtime`. No CI SSH key, sudo, rootful Docker socket, privileged container, arbitrary host mount, device, host namespace, raw shell command or raw Traefik configuration is exposed in `paas.json`. Application images must originate from the expected per-repository GHCR namespace and carry matching OCI source/commit labels. PostgreSQL/Redis/helper digests are operator-approved.
 
 Traefik has no Docker socket. A separate user reads atomic file-provider routes and certificate files. DNS credentials stay with the certificate service. Only Cloudflare source networks can reach 80/443 after origin filtering is installed. Existing high TCP/UDP ports are not filtered by that rule.

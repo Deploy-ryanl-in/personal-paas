@@ -22,6 +22,13 @@ import (
 	"time"
 )
 
+type readTokenKey struct{}
+
+// A job-scoped token is used only after OIDC verification and never persisted or cached.
+func WithReadToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, readTokenKey{}, token)
+}
+
 type Client struct {
 	HTTP   *http.Client
 	AppID  string
@@ -53,6 +60,9 @@ func LoadKey(b []byte) (*rsa.PrivateKey, error) {
 	return r, nil
 }
 func (c *Client) jwt() (string, error) {
+	if c.Key == nil || c.AppID == "" {
+		return "", errors.New("use a current template with a job-scoped read token, or configure a legacy runtime App")
+	}
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
 	b, _ := json.Marshal(map[string]any{"iat": time.Now().Add(-time.Minute).Unix(), "exp": time.Now().Add(8 * time.Minute).Unix(), "iss": c.AppID})
 	s := header + "." + base64.RawURLEncoding.EncodeToString(b)
@@ -84,6 +94,9 @@ func (c *Client) request(ctx context.Context, method, path, tok string, body any
 	return nil
 }
 func (c *Client) Token(ctx context.Context, repo string, id int64) (string, error) {
+	if tok, ok := ctx.Value(readTokenKey{}).(string); ok && tok != "" {
+		return tok, nil
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if t := c.tokens[id]; time.Until(t.Expires) > 5*time.Minute {

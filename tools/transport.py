@@ -5,9 +5,10 @@ origin=urllib.parse.urlsplit(BASE)
 if origin.scheme!='https' or not origin.hostname or origin.username or origin.password or origin.port or origin.path or origin.query or origin.fragment:
     raise ValueError('deployment URL must be an HTTPS origin')
 class TransientRequestError(RuntimeError):pass
-def request(url,method='GET',body=None,token=None,binary=False):
+def request(url,method='GET',body=None,token=None,binary=False,read_token=None):
     headers={'Accept':'application/json','User-Agent':'Ryanl-Personal-PaaS/1.0 (+https://github.com/Deploy-ryanl-in/personal-paas)'}
     if token: headers['Authorization']='Bearer '+token
+    if read_token:headers['X-GitHub-Read-Token']=read_token
     if body is not None: headers['Content-Type']='application/json'
     req=urllib.request.Request(url,data=None if body is None else json.dumps(body).encode(),headers=headers,method=method)
     try:
@@ -23,7 +24,7 @@ def oidc():
     return request(url,token=os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN'])['value']
 def api(path,method='GET',body=None,binary=False):
     for attempt in range(6):
-        try:return request(BASE+'/v1/'+path,method,body,oidc(),binary)
+        try:return request(BASE+'/v1/'+path,method,body,oidc(),binary,os.environ.get('GH_TOKEN'))
         except TransientRequestError:
             if attempt==5:raise
             time.sleep(min(2**attempt,10))
