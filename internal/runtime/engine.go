@@ -500,12 +500,19 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 		if pauseErr != nil {
 			return pauseErr
 		}
+		pausedNames := map[string]bool{}
 		for _, r := range paused {
 			for n := range r.Config.Services {
+				pausedNames[ServiceName(r, n)] = true
 				active[ServiceName(r, n)] = true
 			}
 		}
 		for _, c := range list {
+			if pausedNames[c.Name[1:]] && c.State.Running {
+				if err := e.Docker.Stop(ctx, c.ID); err != nil {
+					failures = append(failures, err)
+				}
+			}
 			if !active[c.Name[1:]] {
 				if err := e.Docker.Remove(ctx, c.ID); err != nil {
 					failures = append(failures, err)

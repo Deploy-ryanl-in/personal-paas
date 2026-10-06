@@ -13,7 +13,7 @@ Cloudflare DNS token is read only by `paas-acme`, scoped to Zone read + DNS edit
 
 Trust policy is `/etc/personal-paas/policy.json`: the allowed domain namespace, immutable owner IDs (RyanStanLin 93820487 and Deploy-ryanl-in 337720882), optional repository ID allowlist, approved exact reusable workflow refs/SHA and database/helper digests. All repositories under either bound owner are automatically supported. Platform workflow updates require a reviewed new pin and matching policy; do not use mutable `main` refs for trust.
 
-Applications use their GitHub Actions operation workflow. Fixed operations: status/history/logs, redeploy, rollback by release ID, stop (keeps volumes), backup, encrypted download, restore by backup ID, database upgrade by approved same-major digest. Data restore requires `RESTORE <repository ID>`; code rollback does not rewind database writes.
+Applications use their GitHub Actions operation workflow. Fixed operations: status/history/logs/routes, start, stop, restart, delete, cleanup-images, redeploy, rollback by release ID, backup, encrypted download, restore by backup ID and database upgrade by approved same-major digest. Stop retains stopped containers; delete removes containers. Both retain named volumes and the latest successful release. Data restore requires `RESTORE <repository ID>`; code rollback does not rewind database writes.
 
 Daily backups run at 02:00 Asia/Taipei and remain locally for seven days. PostgreSQL uses a logical dump, Redis a consistent snapshot, other volumes a cold archive. Backup files are age encrypted before being indexed or offered for download. Restore creates new volumes before switching; failed restore returns to previous volumes. Losing the VPS and all downloaded copies loses data; local backup cannot survive destruction of its only disk.
 
@@ -29,7 +29,12 @@ Run the generated repository’s **PaaS operations** workflow from its authorize
 | `logs` | `service` defaults to `web`; last 200 lines, with exact stored secret values redacted. |
 | `redeploy` | Reuse the latest successful version, including a previously stopped application. |
 | `rollback` | Supply a successful retained release ID; restores image/config/secrets, preserving current database volume bindings. |
-| `stop` | Stop containers and remove routes, retaining named volumes and retained release history. A normal later push with `state: present` starts the app again. |
+| `stop` | Durably suspend containers and remove routes; container identities, volumes and successful release remain. Controller restarts keep the stack stopped. |
+| `start` | Resume stopped containers or recreate deleted containers from the latest successful release; no rebuild. |
+| `restart` | Stop then start the latest successful release without building another image. |
+| `delete` | Remove this repository's containers and routes, retaining volumes and release history. |
+| `cleanup-images` | Remove only unused VPS application image references owned by this repository; never remove an image used by a running or stopped container, volumes, shared database base images or GHCR packages. |
+| `routes` | List domains, shared group, path filters and participating repositories/services. |
 | `backup` / `backups` | Create an encrypted snapshot or list available backup IDs. Applications without volumes still produce encrypted recovery metadata. |
 | `download-backup` | Supply backup ID; download the `encrypted-backup` artifact from the successful run. Artifact retention is one day; server retention is seven days. |
 | `restore` | Supply backup ID and exact `RESTORE <repository ID>` confirmation. Restore into new volumes, verify, then switch; old volumes remain available if the restore fails. |

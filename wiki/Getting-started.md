@@ -4,7 +4,7 @@
 
 打开 [template-aspnet](https://github.com/Deploy-ryanl-in/template-aspnet)，点击 **Use this template → Create a new repository**。Owner 选 `RyanStanLin` 或 `Deploy-ryanl-in`；仓库名例如 `my-api`，公有和私有都可以。不要选择复制所有分支。生成的是独立项目，之后的提交属于新仓库。
 
-创建完成只需 clone；第一次本地 push 才触发上线。模板仓库本身不会部署。首次 push 保留默认 `.github/workflows/ci.yml` 和 `operations.yml`，不需要改 CI/CD。
+创建完成即可 clone。GitHub 创建模板仓库时可能已经触发首轮 CI/CD，默认示例无需密钥即可上线；之后每次本地 push 都按新 commit 更新。模板仓库本身不会部署。保留默认 `.github/workflows/ci.yml` 和 `operations.yml`，不需要改 CI/CD。
 
 ```sh
 git clone https://github.com/RyanStanLin/my-api.git
