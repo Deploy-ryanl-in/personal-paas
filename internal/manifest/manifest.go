@@ -37,12 +37,17 @@ type Volume struct {
 	Name   string `json:"name"`
 	Target string `json:"target"`
 }
+type Routing struct {
+	SharedGroup string   `json:"sharedGroup"`
+	Paths       []string `json:"paths,omitempty"`
+}
 type Service struct {
 	Type        string            `json:"type"`
 	Build       *Build            `json:"build,omitempty"`
 	Image       string            `json:"image,omitempty"`
 	Port        int               `json:"port,omitempty"`
 	Domain      string            `json:"domain,omitempty"`
+	Routing     *Routing          `json:"routing,omitempty"`
 	Health      *Health           `json:"health,omitempty"`
 	Resources   Resources         `json:"resources"`
 	Environment map[string]string `json:"environment,omitempty"`
@@ -182,7 +187,20 @@ func (m *Manifest) Validate() error {
 			if s.Port < 1024 || s.Port > 65535 || s.Domain == "" || s.Health == nil || s.Health.Status < 200 || s.Health.Status > 299 || !strings.HasPrefix(s.Health.Path, "/") || strings.HasPrefix(s.Health.Path, "//") || strings.ContainsAny(s.Health.Path, "?#\r\n") {
 				return errors.New("web requires domain, unprivileged port and health path")
 			}
-		} else if s.Domain != "" || s.Port != 0 || s.Health != nil {
+			if s.Routing != nil {
+				if !label.MatchString(s.Routing.SharedGroup) || len(s.Routing.Paths) > 16 {
+					return errors.New("invalid shared route group or path count")
+				}
+				seen := map[string]bool{}
+				for _, filter := range s.Routing.Paths {
+					base := strings.TrimSuffix(filter, "/*")
+					if !strings.HasPrefix(base, "/") || strings.HasPrefix(base, "//") || path.Clean(base) != base || strings.ContainsAny(base, "*?#\\`\r\n\x00 %") || seen[filter] {
+						return errors.New("route paths require a clean absolute prefix with optional trailing /*")
+					}
+					seen[filter] = true
+				}
+			}
+		} else if s.Domain != "" || s.Port != 0 || s.Health != nil || s.Routing != nil {
 			return errors.New("only web services may expose HTTP")
 		}
 		for k, v := range s.Environment {
@@ -279,18 +297,16 @@ func namespace(options []string) (string, string) {
 }
 func ValidateDeclaredDomains(m Manifest, options ...string) error {
 	domain, control := namespace(options)
-	domains := map[string]bool{}
 	for _, s := range m.Services {
 		if s.Type != "web" || s.Domain == "auto" {
 			continue
 		}
 		p := strings.TrimSuffix(s.Domain, "."+domain)
-		if s.Domain != p+"."+domain || s.Domain == control || !dns.MatchString(p) || forbidden[p] || domains[s.Domain] {
-			return errors.New("domain outside allowed namespace, reserved, or duplicate")
+		if s.Domain != p+"."+domain || s.Domain == control || !dns.MatchString(p) || forbidden[p] {
+			return errors.New("domain outside allowed namespace or reserved")
 		}
-		domains[s.Domain] = true
 	}
-	return nil
+	return ValidateRoutes(m.Services)
 }
 func Resolve(m Manifest, id Identity, existing map[string]string, options ...string) (Manifest, error) {
 	domain, control := namespace(options)
@@ -305,7 +321,6 @@ func Resolve(m Manifest, id Identity, existing map[string]string, options ...str
 			m.Name = n
 		}
 	}
-	domains := map[string]bool{}
 	for n, s := range m.Services {
 		if s.Type != "web" {
 			continue
@@ -322,13 +337,56 @@ func Resolve(m Manifest, id Identity, existing map[string]string, options ...str
 			}
 		}
 		p := strings.TrimSuffix(s.Domain, "."+domain)
-		if s.Domain != p+"."+domain || s.Domain == control || !dns.MatchString(p) || forbidden[p] || domains[s.Domain] {
-			return m, errors.New("domain outside allowed namespace, reserved, or duplicate")
+		if s.Domain != p+"."+domain || s.Domain == control || !dns.MatchString(p) || forbidden[p] {
+			return m, errors.New("domain outside allowed namespace or reserved")
 		}
-		domains[s.Domain] = true
 		m.Services[n] = s
 	}
-	return m, nil
+	return m, ValidateRoutes(m.Services)
+}
+
+// Paths filter deliveries, not proxy rewrites. A bare prefix matches its path
+// segment and descendants; /* matches descendants only. Empty filters match all.
+func (s Service) MatchPath(p string) int {
+	if s.Routing == nil || len(s.Routing.Paths) == 0 {
+		return 0
+	}
+	best := -1
+	for _, filter := range s.Routing.Paths {
+		base := strings.TrimSuffix(filter, "/*")
+		wild := strings.HasSuffix(filter, "/*")
+		if (!wild && (p == base || base == "/")) || strings.HasPrefix(p, strings.TrimSuffix(base, "/")+"/") {
+			score := len(base) * 2
+			if !wild {
+				score++
+			}
+			if score > best {
+				best = score
+			}
+		}
+	}
+	return best
+}
+func ValidateRoutes(services map[string]Service) error {
+	names := []string{}
+	for n, s := range services {
+		if s.Type == "web" {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	for i, n := range names {
+		for _, other := range names[i+1:] {
+			a, b := services[n], services[other]
+			if a.Domain != b.Domain || a.Domain == "auto" {
+				continue
+			}
+			if a.Routing == nil || b.Routing == nil || a.Routing.SharedGroup != b.Routing.SharedGroup {
+				return errors.New("shared domain requires matching explicit sharedGroup on every participant")
+			}
+		}
+	}
+	return nil
 }
 func ImagePath(id Identity, service string) string {
 	return fmt.Sprintf("ghcr.io/%s/paas-%d-%s", strings.ToLower(id.Owner), id.ID, service)

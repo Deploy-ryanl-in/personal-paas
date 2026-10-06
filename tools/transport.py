@@ -34,15 +34,29 @@ def poll(job):
         state=api('deployments/'+job['id'])
         if state['status'] in ['failed','superseded']: raise RuntimeError(state.get('error','deployment failed'))
         if state['status']=='succeeded':
-            release=state['release'];stopped=release['config']['state']=='absent' or state.get('operation',{}).get('action')=='stop'
-            domains=[] if stopped else [s['domain'] for s in release['config']['services'].values() if s['type']=='web']
+            runtime=api('status');release=runtime.get('release',state['release']);action=state.get('operation',{}).get('action','deploy')
             with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
-                f.write('Commit: `'+release['commit']+'`\n\nRelease: `'+state['id']+'`\n\n')
-                if stopped:f.write('Application stopped; persistent volumes retained.\n')
-                for domain in domains:f.write('- https://'+domain+'\n')
+                f.write('Operation: `'+action+'`\n\nState: `'+runtime['state']+'`\n\nCommit: `'+release['commit']+'`\n\nRelease: `'+release['id']+'`\n\n')
+                if action=='stop':f.write('Containers stopped; identities and persistent volumes retained.\n')
+                if action=='delete':f.write('Containers and routes deleted; persistent volumes and recorded release retained. Use start to recreate.\n')
+                if action=='cleanup-images':f.write('Unused local application images cleaned. Images used by running or stopped containers, data volumes and remote GHCR packages retained.\n')
+                if runtime['state']=='active':
+                    for domain in sorted({s['domain'] for s in release['config']['services'].values() if s['type']=='web'}):f.write('- https://'+domain+'\n')
+            shared_summary()
             return state
         time.sleep(5)
     raise RuntimeError('deployment deadline exceeded')
+def shared_summary():
+    members=api('routes');groups={}
+    for member in members:groups.setdefault(member['domain'],[]).append(member)
+    with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+        for domain,items in groups.items():
+            if len(items)<2:continue
+            f.write('\n> Shared domain **'+domain+'** also belongs to these services:\n\n')
+            for member in items:
+                paths=(member.get('routing') or {}).get('paths') or ['all paths']
+                f.write('- `'+(member['repository'] or str(member['repositoryId']))+'/'+member['service']+'`: '+', '.join('`'+p+'`' for p in paths)+' ('+('active' if member['active'] else 'inactive')+')\n')
+            print('::warning title=Shared domain::'+domain+' is shared by '+', '.join((m['repository'] or str(m['repositoryId']))+'/'+m['service'] for m in items))
 if os.environ['PAAS_MODE']=='deploy':
     repo=os.environ['GITHUB_REPOSITORY'];sha=os.environ['GITHUB_SHA']
     manifest=request('https://api.github.com/repos/'+repo+'/contents/paas.json?ref='+sha,token=os.environ['GH_TOKEN'])
@@ -66,12 +80,13 @@ if os.environ['PAAS_MODE']=='deploy':
     poll(api('deployments','POST',{'images':images,'secrets':selected}))
 else:
     action=os.environ['OP_ACTION']
-    if action in ['status','history','backups','logs']:
+    if action in ['status','routes','history','backups','logs']:
         route=action
         if action=='logs':
             import urllib.parse
             route+='?service='+urllib.parse.quote(os.environ['OP_SERVICE'])
         print(json.dumps(api(route),indent=2))
+        if action in ['status','routes']:shared_summary()
     elif action=='download-backup':
         import urllib.parse
         data=api('backups/'+urllib.parse.quote(os.environ['OP_BACKUP'],safe=''),binary=True)

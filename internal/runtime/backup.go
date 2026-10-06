@@ -90,7 +90,7 @@ func (b *Backup) Create(ctx context.Context, r store.Release) (string, error) {
 			case "postgres":
 				cmd = b.Docker.Command(ctx, "exec", ServiceName(r, n), "pg_dump", "--format=custom", "--no-owner", "-U", dbUser(s), "-d", dbName(s))
 			case "redis":
-				if _, err = b.Docker.Run(ctx, "exec", ServiceName(r, n), "redis-cli", "SAVE"); err != nil {
+				if _, err = b.Docker.Redis(ctx, r, n, "SAVE"); err != nil {
 					out.Close()
 					return "", err
 				}

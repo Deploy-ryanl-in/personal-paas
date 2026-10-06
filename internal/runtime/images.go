@@ -14,11 +14,7 @@ func (d *Docker) PruneImages(ctx context.Context, r store.Release, retained []st
 	keep := map[string]bool{}
 	for _, release := range retained {
 		for _, ref := range release.Images {
-			data, err := d.Run(ctx, "image", "inspect", ref, "--format", "{{.Id}}")
-			if err != nil {
-				return err
-			}
-			keep[strings.TrimSpace(string(data))] = true
+			keep[ref] = true
 		}
 	}
 	data, err := d.Run(ctx, "image", "ls", "--no-trunc", "--quiet", "--filter", "label="+Managed, "--filter", fmt.Sprintf("label=in.ryanl.paas.repository=%d", r.Repo.ID))
@@ -27,7 +23,7 @@ func (d *Docker) PruneImages(ctx context.Context, r store.Release, retained []st
 	}
 	seen := map[string]bool{}
 	for _, id := range strings.Fields(string(data)) {
-		if keep[id] || seen[id] {
+		if seen[id] {
 			continue
 		}
 		seen[id] = true
@@ -44,23 +40,33 @@ func (d *Docker) PruneImages(ctx context.Context, r store.Release, retained []st
 			continue
 		}
 		image := images[0]
+		used, err := d.Run(ctx, "ps", "-a", "--quiet", "--filter", "ancestor="+id)
+		if err != nil {
+			return err
+		}
+		if len(strings.TrimSpace(string(used))) > 0 {
+			continue
+		}
 		if image.Config.Labels["org.opencontainers.image.source"] != "https://github.com/"+r.Repo.FullName {
 			continue
 		}
 		prefix := fmt.Sprintf("ghcr.io/%s/paas-%d-", strings.ToLower(r.Repo.Owner), r.Repo.ID)
 		safe := true
 		for _, ref := range append(image.RepoTags, image.RepoDigests...) {
-			if !strings.HasPrefix(ref, prefix) {
+			if !strings.HasPrefix(ref, prefix) || keep[ref] {
 				safe = false
 			}
 		}
 		if !safe {
 			continue
 		}
-		for _, ref := range image.RepoTags {
-			d.Run(ctx, "image", "rm", ref)
+		refs := append(append([]string{}, image.RepoTags...), image.RepoDigests...)
+		if len(refs) == 0 {
+			refs = []string{id}
 		}
-		d.Run(ctx, "image", "rm", id)
+		if _, err = d.Run(ctx, append([]string{"image", "rm"}, refs...)...); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Deploy-ryanl-in/personal-paas/internal/gateway"
 	"github.com/Deploy-ryanl-in/personal-paas/internal/manifest"
 	"github.com/Deploy-ryanl-in/personal-paas/internal/store"
 	"io"
@@ -28,6 +29,7 @@ type Docker struct {
 	RegistryConfig string
 	Helper         string
 	HTTP           *http.Client
+	Gateway        *gateway.Gateway
 }
 type Container struct {
 	ID     string `json:"Id"`
@@ -267,7 +269,15 @@ func (d *Docker) Create(ctx context.Context, r store.Release, n string) error {
 	}
 	args = append(args, image)
 	if s.Type == "redis" {
-		args = append(args, "redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", "60", "1", "--maxmemory", fmt.Sprintf("%dmb", s.Resources.MemoryMiB/2), "--maxmemory-policy", "noeviction")
+		// Credentials stay in the encrypted release/env file and container tmpfs;
+		// never place a password in host process arguments or Redis logs.
+		args = append(args, "sh", "-eu", "-c", `umask 077
+printf '' > /tmp/redis-auth.conf
+if [ -n "${REDIS_PASSWORD:-}" ]; then
+ escaped=$(printf '%s' "$REDIS_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')
+ printf 'requirepass "%s"\n' "$escaped" > /tmp/redis-auth.conf
+fi
+exec redis-server /tmp/redis-auth.conf --appendonly yes --appendfsync everysec --save 60 1 --maxmemory "$1" --maxmemory-policy noeviction`, "paas-redis", fmt.Sprintf("%dmb", s.Resources.MemoryMiB/2))
 	}
 	if _, e = d.Run(ctx, args...); e != nil {
 		return e
@@ -392,6 +402,9 @@ func (d *Docker) Ready(ctx context.Context, r store.Release, n string, external 
 			u = fmt.Sprintf("http://127.0.0.1:%d%s", p, s.Health.Path)
 		}
 		req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
+		if external && d.Gateway != nil {
+			d.Gateway.Sign(req, r.Repo.ID, n)
+		}
 		resp, e := d.HTTP.Do(req)
 		if e != nil {
 			return errors.New("HTTP health check failed")
@@ -405,12 +418,16 @@ func (d *Docker) Ready(ctx context.Context, r store.Release, n string, external 
 		_, e = d.Run(ctx, "exec", ServiceName(r, n), "pg_isready", "-h", "127.0.0.1", "-U", dbUser(s), "-d", dbName(s))
 		return e
 	case "redis":
-		b, e := d.Run(ctx, "exec", ServiceName(r, n), "redis-cli", "PING")
+		b, e := d.Redis(ctx, r, n, "PING")
 		if e != nil || strings.TrimSpace(string(b)) != "PONG" {
 			return errors.New("Redis not ready")
 		}
 	}
 	return nil
+}
+func (d *Docker) Redis(ctx context.Context, r store.Release, n string, args ...string) ([]byte, error) {
+	command := []string{"exec", ServiceName(r, n), "sh", "-eu", "-c", `export REDISCLI_AUTH="${REDIS_PASSWORD:-}"; exec redis-cli "$@"`, "paas-redis-cli"}
+	return d.Run(ctx, append(command, args...)...)
 }
 func dbUser(s manifest.Service) string {
 	if s.Environment["POSTGRES_USER"] != "" {

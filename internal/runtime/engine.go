@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/Deploy-ryanl-in/personal-paas/internal/store"
 	"log/slog"
+	"maps"
 	"time"
 )
 
@@ -74,7 +75,7 @@ func (e *Engine) Execute(ctx context.Context, j store.Job) error {
 		return e.Deploy(ctx, j.Release)
 	}
 	r, err := e.Store.Active(j.RepoID)
-	if err == sql.ErrNoRows && (j.Operation.Action == "redeploy" || j.Operation.Action == "rollback" || j.Operation.Action == "stop") {
+	if err == sql.ErrNoRows && (j.Operation.Action == "redeploy" || j.Operation.Action == "rollback" || j.Operation.Action == "stop" || j.Operation.Action == "start" || j.Operation.Action == "restart" || j.Operation.Action == "delete" || j.Operation.Action == "cleanup-images") {
 		r, err = e.Store.LatestRelease(j.RepoID)
 	}
 	if err != nil {
@@ -82,6 +83,13 @@ func (e *Engine) Execute(ctx context.Context, j store.Job) error {
 	}
 	r.Run = j.Release.Run
 	switch j.Operation.Action {
+	case "start":
+		return e.Deploy(ctx, r)
+	case "restart":
+		if err := e.Suspend(ctx, r); err != nil {
+			return err
+		}
+		return e.Deploy(ctx, r)
 	case "redeploy":
 		r.ID = j.ID
 		r.Created = time.Now()
@@ -97,7 +105,11 @@ func (e *Engine) Execute(ctx context.Context, j store.Job) error {
 		old.Volumes = r.Volumes
 		return e.Deploy(ctx, old)
 	case "stop":
+		return e.Suspend(ctx, r)
+	case "delete":
 		return e.Stop(ctx, r)
+	case "cleanup-images":
+		return e.Docker.PruneImages(ctx, r, nil)
 	case "backup":
 		_, err = e.Backup.Create(ctx, r)
 		return err
@@ -158,6 +170,12 @@ func (e *Engine) Deploy(ctx context.Context, r store.Release) (err error) {
 	if old.ID == r.ID {
 		return nil
 	}
+	// Keep stable data mappings and database restrictions even while paused or deleted.
+	if oldErr == sql.ErrNoRows {
+		if previous, lookupErr := e.Store.LatestRelease(r.Repo.ID); lookupErr == nil {
+			old = previous
+		}
+	}
 	if r.Config.State == "absent" {
 		if oldErr == nil {
 			return e.Stop(ctx, old)
@@ -179,9 +197,16 @@ func (e *Engine) Deploy(ctx context.Context, r store.Release) (err error) {
 			if next.Resources != s.Resources {
 				return errors.New("database resource changes require maintenance")
 			}
+			if !databaseEnvironmentEqual(old, r, n) {
+				return errors.New("database credentials or environment changes require explicit maintenance; retain current data")
+			}
 		}
 	}
-	if err = e.Admission(ctx, r, old); err != nil {
+	admissionOld := old
+	if oldErr == sql.ErrNoRows {
+		admissionOld = store.Release{}
+	}
+	if err = e.Admission(ctx, r, admissionOld); err != nil {
 		return err
 	}
 	if err = e.Docker.EnsureNetwork(ctx, r.Repo.ID); err != nil {
@@ -196,7 +221,11 @@ func (e *Engine) Deploy(ctx context.Context, r store.Release) (err error) {
 		recoverCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		if switched {
-			e.Routes(recoverCtx, old, r.Repo.ID)
+			if oldErr == nil {
+				e.Routes(recoverCtx, old, r.Repo.ID)
+			} else {
+				e.Routes(recoverCtx, store.Release{}, r.Repo.ID)
+			}
 		}
 		list, _ := e.Docker.List(recoverCtx, r.Repo.ID)
 		for _, c := range list {
@@ -209,7 +238,7 @@ func (e *Engine) Deploy(ctx context.Context, r store.Release) (err error) {
 			}
 		}
 		for n, s := range old.Config.Services {
-			if s.Type == "worker" {
+			if s.Type == "worker" && oldErr == nil {
 				e.Docker.Create(recoverCtx, old, n)
 			}
 		}
@@ -282,6 +311,9 @@ func (e *Engine) Deploy(ctx context.Context, r store.Release) (err error) {
 	success = true
 	for n, s := range old.Config.Services {
 		if s.Type != "postgres" && s.Type != "redis" {
+			if ServiceName(old, n) == ServiceName(r, n) {
+				continue
+			}
 			e.Docker.Stop(ctx, ServiceName(old, n))
 			e.Docker.Remove(ctx, ServiceName(old, n))
 		}
@@ -324,6 +356,9 @@ func (e *Engine) Stop(ctx context.Context, r store.Release) error {
 	if err := e.Routes(ctx, store.Release{}, r.Repo.ID); err != nil {
 		return err
 	}
+	if err := e.Store.Stop(r.Repo.ID); err != nil {
+		return err
+	}
 	list, err := e.Docker.List(ctx, r.Repo.ID)
 	if err != nil {
 		return err
@@ -336,7 +371,44 @@ func (e *Engine) Stop(ctx context.Context, r store.Release) error {
 			return err
 		}
 	}
-	return e.Store.Stop(r.Repo.ID)
+	return nil
+}
+
+func databaseEnvironmentEqual(a, b store.Release, n string) bool {
+	resolved := func(r store.Release) map[string]string {
+		out := maps.Clone(r.Config.Services[n].Environment)
+		if out == nil {
+			out = map[string]string{}
+		}
+		for k, ref := range r.Config.Services[n].SecretRefs {
+			out[k] = r.Secrets[ref]
+		}
+		return out
+	}
+	return maps.Equal(resolved(a), resolved(b))
+}
+
+// A stopped stack is durably suspended so Docker events cannot restart or
+// orphan-clean it. Named volumes and container identities remain available.
+func (e *Engine) Suspend(ctx context.Context, r store.Release) error {
+	if err := e.Routes(ctx, store.Release{}, r.Repo.ID); err != nil {
+		return err
+	}
+	if err := e.Store.Suspend(r.Repo.ID); err != nil {
+		return err
+	}
+	list, err := e.Docker.List(ctx, r.Repo.ID)
+	if err != nil {
+		return err
+	}
+	for _, c := range list {
+		if c.State.Running {
+			if err := e.Docker.Stop(ctx, c.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 func (e *Engine) Cleanup(ctx context.Context, r store.Release) error {
 	list, err := e.Docker.List(ctx, r.Repo.ID)
@@ -420,6 +492,15 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 	} else {
 		active := map[string]bool{}
 		for _, r := range all {
+			for n := range r.Config.Services {
+				active[ServiceName(r, n)] = true
+			}
+		}
+		paused, pauseErr := e.Store.SuspendedAll()
+		if pauseErr != nil {
+			return pauseErr
+		}
+		for _, r := range paused {
 			for n := range r.Config.Services {
 				active[ServiceName(r, n)] = true
 			}

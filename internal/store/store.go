@@ -51,7 +51,7 @@ type Operation struct {
 }
 
 func OperationChangesRuntime(op Operation) bool {
-	return op.Action == "redeploy" || op.Action == "rollback" || op.Action == "stop" || op.Action == "restore" || op.Action == "database-upgrade"
+	return op.Action == "redeploy" || op.Action == "rollback" || op.Action == "stop" || op.Action == "start" || op.Action == "restart" || op.Action == "delete" || op.Action == "cleanup-images" || op.Action == "restore" || op.Action == "database-upgrade"
 }
 
 func Open(file string, key []byte) (*Store, error) {
@@ -76,7 +76,11 @@ func Open(file string, key []byte) (*Store, error) {
 CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,repo INTEGER NOT NULL,kind TEXT NOT NULL,status TEXT NOT NULL,payload BLOB NOT NULL,error TEXT NOT NULL DEFAULT '',created TEXT NOT NULL,updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS releases(id TEXT PRIMARY KEY,repo INTEGER NOT NULL,payload BLOB NOT NULL,created TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS apps(repo INTEGER PRIMARY KEY,active TEXT NOT NULL DEFAULT '',latest_run INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS suspensions(repo INTEGER PRIMARY KEY,release_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS domains(domain TEXT PRIMARY KEY,repo INTEGER NOT NULL,service TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS routes(repo INTEGER NOT NULL,service TEXT NOT NULL,domain TEXT NOT NULL,routing TEXT NOT NULL DEFAULT 'null',repository TEXT NOT NULL DEFAULT '',PRIMARY KEY(repo,service));
+INSERT OR IGNORE INTO routes(repo,service,domain) SELECT repo,service,domain FROM domains;
+DELETE FROM domains;
 CREATE TABLE IF NOT EXISTS nonces(jti TEXT PRIMARY KEY,expires INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS backups(id TEXT PRIMARY KEY,repo INTEGER NOT NULL,release_id TEXT NOT NULL,created TEXT NOT NULL,path TEXT NOT NULL);
 UPDATE jobs SET status='queued' WHERE status='running';`)
@@ -124,7 +128,7 @@ func (s *Store) Nonce(jti string, expires int64) error {
 	return e
 }
 func (s *Store) Domains(id int64) (map[string]string, error) {
-	rows, e := s.DB.Query("SELECT service,domain FROM domains WHERE repo=?", id)
+	rows, e := s.DB.Query("SELECT service,domain FROM routes WHERE repo=?", id)
 	if e != nil {
 		return nil, e
 	}
@@ -148,20 +152,39 @@ func (s *Store) Domains(id int64) (map[string]string, error) {
 	return m, nil
 }
 func (s *Store) CheckDomains(id int64, m manifest.Manifest) error {
-	for _, v := range m.Services {
-		if v.Type != "web" {
-			continue
-		}
-		var owner int64
-		e := s.DB.QueryRow("SELECT repo FROM domains WHERE domain=?", v.Domain).Scan(&owner)
-		if e != nil && e != sql.ErrNoRows {
+	return checkDomains(s.DB, id, m)
+}
+
+type querier interface {
+	Query(string, ...any) (*sql.Rows, error)
+}
+
+func checkDomains(db querier, id int64, m manifest.Manifest) error {
+	services := map[string]manifest.Service{}
+	for n, v := range m.Services {
+		services[n] = v
+	}
+	rows, e := db.Query("SELECT repo,service,domain,routing FROM routes WHERE repo<>?", id)
+	if e != nil {
+		return e
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var repo int64
+		var name, domain, raw string
+		if e = rows.Scan(&repo, &name, &domain, &raw); e != nil {
 			return e
 		}
-		if e == nil && owner != id {
-			return errors.New("domain belongs to another repository")
+		v := manifest.Service{Type: "web", Domain: domain}
+		if e = json.Unmarshal([]byte(raw), &v.Routing); e != nil {
+			return e
 		}
+		services[fmt.Sprintf("repository-%d/%s", repo, name)] = v
 	}
-	return nil
+	if e = rows.Err(); e != nil {
+		return e
+	}
+	return manifest.ValidateRoutes(services)
 }
 func (s *Store) Enqueue(r Release, kind string, op Operation) (Job, error) {
 	operationRun := int64(0)
@@ -293,7 +316,7 @@ func (s *Store) IsStale(r Release) bool {
 }
 func (s *Store) Active(repo int64) (Release, error) {
 	var id string
-	e := s.DB.QueryRow("SELECT active FROM apps WHERE repo=?", repo).Scan(&id)
+	e := s.DB.QueryRow("SELECT active FROM apps WHERE repo=? AND NOT EXISTS (SELECT 1 FROM suspensions WHERE suspensions.repo=apps.repo)", repo).Scan(&id)
 	if e != nil || id == "" {
 		return Release{}, sql.ErrNoRows
 	}
@@ -324,17 +347,21 @@ func (s *Store) Activate(r Release) error {
 		return e
 	}
 	defer tx.Rollback()
+	if e = checkDomains(tx, r.Repo.ID, r.Config); e != nil {
+		return e
+	}
 	_, e = tx.Exec("INSERT OR REPLACE INTO releases(id,repo,payload,created) VALUES(?,?,?,?)", r.ID, r.Repo.ID, b, r.Created.Format(time.RFC3339Nano))
 	if e != nil {
 		return e
 	}
-	_, e = tx.Exec("DELETE FROM domains WHERE repo=?", r.Repo.ID)
+	_, e = tx.Exec("DELETE FROM routes WHERE repo=?", r.Repo.ID)
 	if e != nil {
 		return e
 	}
 	for name, v := range r.Config.Services {
 		if v.Type == "web" {
-			_, e = tx.Exec("INSERT INTO domains(domain,repo,service) VALUES(?,?,?)", v.Domain, r.Repo.ID, name)
+			routing, _ := json.Marshal(v.Routing)
+			_, e = tx.Exec("INSERT INTO routes(domain,repo,service,routing,repository) VALUES(?,?,?,?,?)", v.Domain, r.Repo.ID, name, string(routing), r.Repo.FullName)
 			if e != nil {
 				return e
 			}
@@ -344,14 +371,66 @@ func (s *Store) Activate(r Release) error {
 	if e != nil {
 		return e
 	}
+	if _, e = tx.Exec("DELETE FROM suspensions WHERE repo=?", r.Repo.ID); e != nil {
+		return e
+	}
 	return tx.Commit()
 }
+func (s *Store) Suspend(repo int64) error {
+	_, e := s.DB.Exec("INSERT OR REPLACE INTO suspensions(repo,release_id) SELECT repo,active FROM apps WHERE repo=? AND active<>''", repo)
+	return e
+}
+func (s *Store) Suspended(repo int64) (Release, error) {
+	var id string
+	if err := s.DB.QueryRow("SELECT release_id FROM suspensions WHERE repo=?", repo).Scan(&id); err != nil {
+		return Release{}, err
+	}
+	return s.Release(id, repo)
+}
+
+type RouteMember struct {
+	RepositoryID int64             `json:"repositoryId"`
+	Repository   string            `json:"repository"`
+	Service      string            `json:"service"`
+	Domain       string            `json:"domain"`
+	Routing      *manifest.Routing `json:"routing,omitempty"`
+	Active       bool              `json:"active"`
+}
+
+func (s *Store) RouteMembers(repo int64) ([]RouteMember, error) {
+	rows, e := s.DB.Query(`SELECT r.repo,r.repository,r.service,r.domain,r.routing,
+CASE WHEN a.active<>'' AND NOT EXISTS(SELECT 1 FROM suspensions WHERE suspensions.repo=r.repo) THEN 1 ELSE 0 END
+FROM routes r LEFT JOIN apps a ON a.repo=r.repo WHERE r.domain IN(SELECT domain FROM routes WHERE repo=?) ORDER BY r.domain,r.repo,r.service`, repo)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []RouteMember{}
+	for rows.Next() {
+		var member RouteMember
+		var raw string
+		if e = rows.Scan(&member.RepositoryID, &member.Repository, &member.Service, &member.Domain, &raw, &member.Active); e != nil {
+			return nil, e
+		}
+		if e = json.Unmarshal([]byte(raw), &member.Routing); e != nil {
+			return nil, e
+		}
+		out = append(out, member)
+	}
+	return out, rows.Err()
+}
 func (s *Store) Stop(repo int64) error {
-	_, e := s.DB.Exec("UPDATE apps SET active='' WHERE repo=?", repo)
+	_, e := s.DB.Exec("DELETE FROM suspensions WHERE repo=?; UPDATE apps SET active='' WHERE repo=?", repo, repo)
 	return e
 }
 func (s *Store) ActiveAll() ([]Release, error) {
-	rows, e := s.DB.Query("SELECT releases.payload FROM apps JOIN releases ON apps.active=releases.id")
+	return s.releaseList("SELECT releases.payload FROM apps JOIN releases ON apps.active=releases.id WHERE NOT EXISTS (SELECT 1 FROM suspensions WHERE suspensions.repo=apps.repo)")
+}
+func (s *Store) SuspendedAll() ([]Release, error) {
+	return s.releaseList("SELECT releases.payload FROM suspensions JOIN releases ON suspensions.release_id=releases.id")
+}
+func (s *Store) releaseList(query string) ([]Release, error) {
+	rows, e := s.DB.Query(query)
 	if e != nil {
 		return nil, e
 	}

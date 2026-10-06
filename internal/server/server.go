@@ -174,7 +174,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch op.Action {
-		case "redeploy", "rollback", "stop", "backup", "restore", "database-upgrade":
+		case "start", "stop", "restart", "delete", "cleanup-images", "redeploy", "rollback", "backup", "restore", "database-upgrade":
 		default:
 			fail(w, 400, errors.New("unsupported operation"))
 			return
@@ -188,7 +188,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		active, e := s.Store.Active(id.ID)
-		if e != nil && (op.Action == "redeploy" || op.Action == "rollback" || op.Action == "stop") {
+		if e != nil && (op.Action == "redeploy" || op.Action == "rollback" || op.Action == "stop" || op.Action == "start" || op.Action == "restart" || op.Action == "delete" || op.Action == "cleanup-images") {
 			active, e = s.Store.LatestRelease(id.ID)
 		}
 		if e != nil {
@@ -212,10 +212,21 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "GET" && path == "status":
 		active, e := s.Store.Active(id.ID)
 		if e != nil {
+			if paused, err := s.Store.Suspended(id.ID); err == nil {
+				reply(w, 200, map[string]any{"state": "stopped", "release": paused})
+				return
+			}
 			reply(w, 200, map[string]any{"state": "inactive", "repositoryId": id.ID})
 			return
 		}
 		reply(w, 200, map[string]any{"state": "active", "release": active})
+	case r.Method == "GET" && path == "routes":
+		members, e := s.Store.RouteMembers(id.ID)
+		if e != nil {
+			fail(w, 500, e)
+			return
+		}
+		reply(w, 200, members)
 	case r.Method == "GET" && path == "history":
 		h, e := s.Store.History(id.ID)
 		if e != nil {
@@ -225,6 +236,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, h)
 	case r.Method == "GET" && path == "logs":
 		active, e := s.Store.Active(id.ID)
+		if e != nil {
+			active, e = s.Store.LatestRelease(id.ID)
+		}
 		if e != nil {
 			fail(w, 404, e)
 			return

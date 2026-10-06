@@ -7,12 +7,14 @@ import (
 	"flag"
 	"fmt"
 	"github.com/Deploy-ryanl-in/personal-paas/internal/auth"
+	"github.com/Deploy-ryanl-in/personal-paas/internal/gateway"
 	"github.com/Deploy-ryanl-in/personal-paas/internal/github"
 	"github.com/Deploy-ryanl-in/personal-paas/internal/manifest"
 	"github.com/Deploy-ryanl-in/personal-paas/internal/runtime"
 	"github.com/Deploy-ryanl-in/personal-paas/internal/server"
 	"github.com/Deploy-ryanl-in/personal-paas/internal/store"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -51,7 +53,24 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 	must(d.AssertRootless(ctx))
-	proxy := &runtime.Proxy{Directory: *routes, APIURL: "http://127.0.0.1:9080", Docker: d, ControlDomain: policy.ControlDomain()}
+	ingress := gateway.New(key)
+	d.Gateway = ingress
+	proxy := &runtime.Proxy{Directory: *routes, APIURL: "http://127.0.0.1:9080", Docker: d, ControlDomain: policy.ControlDomain(), Gateway: ingress}
+	shared := &http.Server{Addr: "127.0.0.1:9081", Handler: ingress, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 20 << 10}
+	listener, err := net.Listen("tcp", shared.Addr)
+	must(err)
+	go func() {
+		if err := shared.Serve(listener); err != http.ErrServerClosed {
+			slog.Error("application ingress failed")
+			cancel()
+		}
+	}()
+	go func() {
+		<-ctx.Done()
+		c, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		shared.Shutdown(c)
+	}()
 	backup := &runtime.Backup{Directory: filepath.Join(*state, "backups"), Recipient: os.Getenv("AGE_RECIPIENT"), Identity: filepath.Join(*state, "backup.agekey"), Docker: d, Store: db}
 	must(os.MkdirAll(backup.Directory, 0700))
 	engine := &runtime.Engine{Store: db, Docker: d, Proxy: proxy, ReadyTimeout: 120 * time.Second, Observation: 60 * time.Second, Budget: 768, Backup: backup}

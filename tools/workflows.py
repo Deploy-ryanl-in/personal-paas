@@ -308,7 +308,7 @@ on:
       action:
         description: Fixed platform operation
         type: choice
-        options: [status, history, logs, redeploy, rollback, stop, backup, backups, download-backup, restore, database-upgrade]
+        options: [status, routes, history, logs, start, stop, restart, delete, cleanup-images, redeploy, rollback, backup, backups, download-backup, restore, database-upgrade]
         default: status
       service: {description: Named service, default: web, type: string}
       release-id: {description: Rollback release ID, type: string}

@@ -52,3 +52,78 @@ func TestQueueRecoverySecretsAndOrdering(t *testing.T) {
 		t.Fatal("accepted replay")
 	}
 }
+
+func TestSuspensionSurvivesRestartAndDomainUpdates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	key := bytes.Repeat([]byte{8}, 32)
+	s, e := Open(path, key)
+	if e != nil {
+		t.Fatal(e)
+	}
+	r := Release{ID: "one", Repo: manifest.Identity{ID: 7, FullName: "owner/app"}, Config: manifest.Manifest{Services: map[string]manifest.Service{"web": {Type: "web", Domain: "before.ryanl.in"}}}}
+	s.DB.Exec("INSERT INTO apps(repo) VALUES(7)")
+	if e = s.Activate(r); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Suspend(7); e != nil {
+		t.Fatal(e)
+	}
+	s.DB.Close()
+	s, e = Open(path, key)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.DB.Close()
+	if _, e = s.Active(7); e == nil {
+		t.Fatal("paused app is active")
+	}
+	if paused, e := s.Suspended(7); e != nil || paused.ID != "one" {
+		t.Fatal(e)
+	}
+	list, e := s.ActiveAll()
+	if e != nil || len(list) != 0 {
+		t.Fatal("paused route active", e)
+	}
+	r.ID = "two"
+	web := r.Config.Services["web"]
+	web.Domain = "after.ryanl.in"
+	r.Config.Services["web"] = web
+	if e = s.Activate(r); e != nil {
+		t.Fatal(e)
+	}
+	domains, e := s.Domains(7)
+	if e != nil || domains["web"] != "after.ryanl.in" {
+		t.Fatal(domains, e)
+	}
+	if _, e = s.Suspended(7); e == nil {
+		t.Fatal("activation did not clear pause")
+	}
+	if e = s.Stop(7); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.LatestRelease(7); e != nil {
+		t.Fatal("delete lost release", e)
+	}
+}
+func TestSharedDomainRequiresConsentAndAllowsOverlappingFilters(t *testing.T) {
+	s, e := Open(filepath.Join(t.TempDir(), "state.db"), bytes.Repeat([]byte{9}, 32))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.DB.Close()
+	a := manifest.Service{Type: "web", Domain: "endpoint.ryanl.in", Routing: &manifest.Routing{SharedGroup: "endpoint"}}
+	r := Release{ID: "a", Repo: manifest.Identity{ID: 1}, Config: manifest.Manifest{Services: map[string]manifest.Service{"user": a}}}
+	s.DB.Exec("INSERT INTO apps(repo) VALUES(1)")
+	if e = s.Activate(r); e != nil {
+		t.Fatal(e)
+	}
+	m := manifest.Manifest{Services: map[string]manifest.Service{"app": a}}
+	if e = s.CheckDomains(2, m); e != nil {
+		t.Fatal("shared domain rejected", e)
+	}
+	a.Routing = nil
+	m.Services["app"] = a
+	if e = s.CheckDomains(2, m); e == nil {
+		t.Fatal("exclusive route hijack accepted")
+	}
+}
