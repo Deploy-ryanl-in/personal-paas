@@ -152,3 +152,26 @@ func TestWebSocketDispatchAndConflict(t *testing.T) {
 		t.Fatal("ambiguous upgrade accepted", e, resp)
 	}
 }
+
+func TestWebSocketBackendCannotRedirectGatewayOutsideItsContainer(t *testing.T) {
+	var outsideHits atomic.Int32
+	outside := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { outsideHits.Add(1); w.WriteHeader(401) }))
+	defer outside.Close()
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, outside.URL+"/sensitive", http.StatusFound)
+	}))
+	defer backend.Close()
+	g := New([]byte("key"))
+	g.Update([]Route{fixture(backend.URL, 1)})
+	request := httptest.NewRequest("GET", "http://endpoint.ryanl.in/ws", nil)
+	request.Header.Set("Upgrade", "websocket")
+	request.Header.Set("Connection", "Upgrade")
+	response := httptest.NewRecorder()
+	g.ServeHTTP(response, request)
+	if outsideHits.Load() != 0 {
+		t.Fatal("gateway followed an application redirect outside its backend")
+	}
+	if response.Code != http.StatusFound {
+		t.Fatal("unexpected response", response.Code)
+	}
+}

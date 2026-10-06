@@ -4,6 +4,8 @@ Traefik终止TLS并转发HTTP Upgrade，Cloudflare转发WebSocket，应用使用
 
 ```sh
 node scripts/ws-smoke.mjs https://my-api.ryanl.in
+# 可选第三个参数指定应用实际定义的路径
+node scripts/ws-smoke.mjs https://endpoint.ryanl.in /ws/app
 ```
 
 示例为无凭据echo，不读取数据库或文件。正式应用的会话权限由应用处理；不要把长期密钥放在URL查询参数中。浏览器客户端可以使用正常登录cookie或短时令牌，Origin验证应按自己的业务设置。

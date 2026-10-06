@@ -44,7 +44,7 @@ type Gateway struct {
 }
 
 func New(key []byte) *Gateway {
-	g := &Gateway{key: append([]byte{}, key...), slots: make(chan struct{}, 32), transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ResponseHeaderTimeout: 10 * time.Second, MaxIdleConns: 64, MaxIdleConnsPerHost: 8, IdleConnTimeout: 60 * time.Second}}
+	g := &Gateway{key: append([]byte{}, key...), slots: make(chan struct{}, 32), transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ResponseHeaderTimeout: 10 * time.Second, MaxResponseHeaderBytes: 64 << 10, MaxIdleConns: 64, MaxIdleConnsPerHost: 8, IdleConnTimeout: 60 * time.Second}}
 	g.Update(nil)
 	return g
 }
@@ -260,7 +260,7 @@ func (g *Gateway) websocket(w http.ResponseWriter, req *http.Request, routes []R
 		}
 		headers.Set("Host", req.Host)
 		dialCtx, stop := context.WithTimeout(ctx, 8*time.Second)
-		c, resp, err := websocket.Dial(dialCtx, target.String(), &websocket.DialOptions{HTTPClient: &http.Client{Transport: g.transport}, HTTPHeader: headers, Subprotocols: protocols})
+		c, resp, err := websocket.Dial(dialCtx, target.String(), &websocket.DialOptions{HTTPClient: &http.Client{Transport: g.transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, HTTPHeader: headers, Subprotocols: protocols})
 		stop()
 		if err != nil {
 			if resp == nil {
