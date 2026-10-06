@@ -261,6 +261,10 @@ for kind in ['aspnet','nextjs']:
       - run: dotnet format --no-restore --verify-no-changes
       - run: dotnet build --no-restore -c Release
       - run: dotnet test --no-build --no-restore -c Release
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: {node-version: '24.21.0'}
+      - name: Local PostgreSQL Redis JSON and WebSocket integration
+        run: bash scripts/local-smoke.sh
 ''' if kind=='aspnet' else '''      - uses: '''+action('actions/setup-node')+'''
         with: {node-version: '24.21.0', cache: npm}
       - run: npm ci

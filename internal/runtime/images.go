@@ -60,7 +60,14 @@ func (d *Docker) PruneImages(ctx context.Context, r store.Release, retained []st
 		if !safe {
 			continue
 		}
-		refs := append(append([]string{}, image.RepoTags...), image.RepoDigests...)
+		refs := []string{}
+		referenceSeen := map[string]bool{}
+		for _, ref := range append(image.RepoTags, image.RepoDigests...) {
+			if !referenceSeen[ref] {
+				referenceSeen[ref] = true
+				refs = append(refs, ref)
+			}
+		}
 		if len(refs) == 0 {
 			refs = []string{id}
 		}

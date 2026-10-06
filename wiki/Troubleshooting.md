@@ -18,3 +18,7 @@
 总预算768 MiB。例如ASP.NET192 + PostgreSQL256 + Redis64 =512 MiB，更新Web增加192达到704 MiB；再运行128 MiB应用会使更新失败，旧版保留。停止容器不计运行预算；start仍会重新做准入检查。
 
 资源必须实际通过rootless cgroup v2生效，平台doctor会检查。应用写只读文件系统失败应改用命名卷或临时目录，而非关闭安全限制。
+
+## Cloudflare 403 / 1010
+
+实测 Python 默认 `Python-urllib` User-Agent 会被现有 Browser Integrity Check 拒绝。模板 API 验收脚本声明 `Personal-PaaS-Smoke/1.0` 客户端标识后正常通过；没有关闭全站安全规则。先比较响应体和 `CF-Ray`，1010 属于浏览器签名阻挡；应用401是API令牌校验，二者不要混淆。参见 [Cloudflare BIC](https://developers.cloudflare.com/waf/tools/browser-integrity-check/)。

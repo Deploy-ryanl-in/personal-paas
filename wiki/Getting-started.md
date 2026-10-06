@@ -63,3 +63,25 @@ dotnet run --project src/App
 不要把生产数据库端口对公网开放来方便本地开发。`local-data/`、`.env.local`、`paas.secrets.json` 均应保持忽略。
 
 Next.js 流程相同，使用 `npm ci`、`npm run dev`，默认健康接口 `/healthz`。数据库 JSON 示例只声明运行环境，Next.js 的业务数据访问需在项目内自行实现；ASP.NET 模板已包含可直接使用的演示接口。
+
+## 可直接运行的本地数据库环境
+
+最新两个模板提供 `compose.dev.yml`、`scripts/create-local-env.py`，用独立开发密码启动本地数据库。需要已有 Docker / Compose；Mac 的当前验收机没有运行 Docker，实际 Compose 整体集成在 GitHub 托管 Linux runner 验证。
+
+```sh
+python3 scripts/create-local-env.py
+docker compose --env-file .env.local -f compose.dev.yml up -d --wait
+set -a
+source .env.local
+set +a
+dotnet run --project src/App
+```
+
+在第二个终端加载同一 `.env.local` 后：
+
+```sh
+python3 scripts/api-smoke.py http://localhost:8080 --local
+node scripts/ws-smoke.mjs http://localhost:8080
+```
+
+开发 PostgreSQL 是127.0.0.1:15432，账号/数据库app，密码为 `.env.local` 的 DATABASE_PASSWORD；Redis是127.0.0.1:16379，密码REDIS_PASSWORD。切到生产声明后使用容器服务名postgres/redis及5432/6379。开发密钥与Actions生产密钥分开生成。结束执行Compose down保留开发命名卷；删除容器不会重置数据或账号密码。
