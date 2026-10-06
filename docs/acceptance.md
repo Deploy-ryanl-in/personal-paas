@@ -1,5 +1,7 @@
 # Acceptance record
 
+The 2026-10-07 stateful ASP.NET/shared-routing/lifecycle SOP supersedes the previous live inventory. See [the developer Wiki acceptance](https://github.com/Deploy-ryanl-in/personal-paas/wiki/Acceptance) for the current tests, workflow runs and final cleanup. Previous records below describe historical deployments.
+
 Initial acceptance completed on 2026-10-05; personal-account/reinstallation follow-up completed on 2026-10-06 (Asia/Taipei), against the existing single VPS and the installed GitHub/Cloudflare configuration. The evidence below distinguishes automated tests from live deployment drills. The follow-up below supersedes the initial live-app inventory.
 
 ## Initial organization template-to-production flow

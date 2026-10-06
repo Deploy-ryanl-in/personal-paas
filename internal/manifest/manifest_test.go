@@ -132,3 +132,26 @@ func TestReusableNamespaceAndReservedControl(t *testing.T) {
 		t.Fatal("auto route captured controller")
 	}
 }
+
+func TestSharedPathFiltersAndInvalidDeclarations(t *testing.T) {
+	m, _ := Decode([]byte(valid))
+	s := m.Services["web"]
+	for _, filter := range []string{"/api/*", "/api/user", "/ws/user"} {
+		s.Routing = &Routing{SharedGroup: "endpoint", Paths: []string{filter}}
+		m.Services["web"] = s
+		if err := m.Validate(); err != nil {
+			t.Fatal(filter, err)
+		}
+	}
+	s.Routing = &Routing{SharedGroup: "endpoint", Paths: []string{"/api/user"}}
+	if s.MatchPath("/api/user/42") < 0 || s.MatchPath("/api/username") >= 0 {
+		t.Fatal("segment boundary ignored")
+	}
+	for _, filter := range []string{"/api/*/escape", "//api", "/api/../admin", "/api?x=1", "/api\\escape", "https://other.test"} {
+		s.Routing.Paths = []string{filter}
+		m.Services["web"] = s
+		if m.Validate() == nil {
+			t.Fatal("unsafe filter accepted", filter)
+		}
+	}
+}

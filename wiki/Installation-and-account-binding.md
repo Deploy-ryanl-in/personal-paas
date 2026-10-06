@@ -5,8 +5,8 @@
 完整可执行流程见仓库 [docs/reinstall.md](https://github.com/Deploy-ryanl-in/personal-paas/blob/main/docs/reinstall.md)。要点：
 
 1. 选择已审查不可变平台commit，下载其 `build-<SHA>` Release安装包及SHA256SUMS，核验后解压。
-2. 填 `installation.json`：domain、controlSubdomain、originIPv4、CloudflareZoneId、证书邮箱、平台repository/SHA、获信任个人账号及组织的不可变owner ID。不要把名字当作安全身份。
-3. 凭据存单独mode600文件：GHCR只读pull、仅本域DNS编辑的Cloudflare证书token，及选择性只读GitHub App。默认OIDC绑定的job只读token可验证已绑定账号私有仓库，不要求逐仓库安装App。GHCR读取范围须覆盖批准账号和组织的包。
+2. 填 `installation.json`：domain、controlSubdomain、originIPv4、CloudflareZoneId、平台repository/SHA、获信任个人账号及组织的不可变owner ID。不要把名字当作安全身份。
+3. 凭据存单独mode600文件：GHCR只读pull、仅本域DNS编辑的Cloudflare证书token、acmeEmail证书邮箱，及选择性只读GitHub App。默认OIDC绑定的job只读token可验证已绑定账号私有仓库，不要求逐仓库安装App。GHCR读取范围须覆盖批准账号和组织的包。
 4. root仅用于一次性installer，应用控制器和应用Docker运行于独立无sudo的paas-runtime；Traefik无Docker socket。安装保留现有rootfulDocker与原服务。
 5. 一次性设置代理开启的通配DNS和Full(strict)，证书服务DNS01获取/续期泛域名。既有基础设施、邮件和精确DNS记录保持原样。
 6. `tools/prepare-templates.py` 按新安装配置生成两个独立模板，固定workflow SHA、域名与平台仓库；发布到自己的组织/个人账号并标记Template Repository。
