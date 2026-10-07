@@ -266,8 +266,18 @@ func (e *Engine) Deploy(ctx context.Context, r store.Release) (err error) {
 		s := r.Config.Services[n]
 		if s.Type == "worker" {
 			if _, ok := old.Config.Services[n]; ok {
-				if err = e.Docker.Stop(ctx, ServiceName(old, n)); err != nil {
-					return err
+				// Deleted stacks keep release metadata, but have no old worker.
+				// List the managed resources rather than stopping a missing name.
+				previous, lookupErr := e.Docker.List(ctx, old.Repo.ID)
+				if lookupErr != nil {
+					return lookupErr
+				}
+				for _, container := range previous {
+					if container.Name == "/"+ServiceName(old, n) && container.State.Running {
+						if err = e.Docker.Stop(ctx, container.ID); err != nil {
+							return err
+						}
+					}
 				}
 			}
 		}

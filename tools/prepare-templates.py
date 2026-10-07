@@ -20,7 +20,7 @@ for kind in ['aspnet','nextjs']:
   file=target/'.github/workflows'/name;text=file.read_text()
   text=re.sub(r'uses: [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/(release|operate)\.yml@[a-f0-9]{40}',lambda m:'uses: '+c['platformRepository']+'/.github/workflows/'+m.group(1)+'.yml@'+c['platformSha'],text)
   text=re.sub(r'platform-sha: [a-f0-9]{40}','platform-sha: '+c['platformSha'],text)
-  text=re.sub(r'^      (deployment-url|domain|platform-repository):.*\n',lambda m:m.group(0) if 'inputs.domain' in m.group(0) else '',text,flags=re.M)
+  text=re.sub(r'^      (deployment-url|domain|platform-repository):.*\n',lambda m:m.group(0) if 'inputs.domain' in m.group(0) or 'description:' in m.group(0) else '',text,flags=re.M)
   text=re.sub(r'^    with:\n','    with:\n      deployment-url: '+audience(c)+'\n',text,flags=re.M)
   if name=='ci.yml':text=text.replace('      platform-sha:','      domain: '+c['domain']+'\n      platform-repository: '+c['platformRepository']+'\n      platform-sha:')
   if name=='operations.yml' and not re.search(r'^  actions: read$',text,re.M):text=text.replace('  id-token: write\n','  id-token: write\n  actions: read\n',1)
