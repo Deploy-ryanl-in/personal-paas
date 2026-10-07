@@ -41,6 +41,12 @@ jobs:
           if origin.scheme!='https' or not origin.hostname or origin.username or origin.password or origin.port or origin.path or origin.query or origin.fragment:
               raise ValueError('deployment URL must be an HTTPS origin')
           class TransientRequestError(RuntimeError):pass
+          class APIRejection(RuntimeError):
+              def __init__(self,status,detail):
+                  self.status=status
+                  try:self.detail=json.loads(detail)
+                  except ValueError:self.detail={}
+                  super().__init__('API HTTP '+str(status)+': '+detail)
           def request(url,method='GET',body=None,token=None,binary=False,read_token=None):
               headers={'Accept':'application/json','User-Agent':'Ryanl-Personal-PaaS/1.0 (+https://github.com/Deploy-ryanl-in/personal-paas)'}
               if token: headers['Authorization']='Bearer '+token
@@ -51,8 +57,8 @@ jobs:
                   with urllib.request.urlopen(req,timeout=60) as r: return r.read() if binary else json.load(r)
               except urllib.error.HTTPError as e:
                   detail=e.read(2048).decode(errors='replace')
-                  error=TransientRequestError if e.code in [429,502,503,504] else RuntimeError
-                  raise error('API HTTP '+str(e.code)+': '+detail) from None
+                  if e.code in [429,502,503,504]:raise TransientRequestError('API HTTP '+str(e.code)+': '+detail) from None
+                  raise APIRejection(e.code,detail) from None
               except (urllib.error.URLError,TimeoutError) as e:
                   raise TransientRequestError('API temporarily unreachable') from None
           def oidc():
@@ -117,18 +123,15 @@ jobs:
           else:
               action=os.environ['OP_ACTION']
               if action in ['clear-route-cache','route-cache']:
-                  if action=='clear-route-cache' and os.environ.get('GITHUB_EVENT_NAME')=='push':
-                      repository=request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY'],token=os.environ['GH_TOKEN'])
-                      import base64
-                      try:
-                          declaration=request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/paas.json?ref='+urllib.parse.quote(repository['default_branch'],safe=''),token=os.environ['GH_TOKEN'])
-                          config=json.loads(base64.b64decode(declaration['content']),object_pairs_hook=unique)
-                      except TransientRequestError:raise
-                      except (RuntimeError,ValueError,KeyError):config={}
-                      if config.get('deployBranch') and os.environ['GITHUB_REF']!='refs/heads/'+config['deployBranch']:
+                  try:
+                      result=api('route-cache/clear','POST',{'domain':os.environ.get('OP_DOMAIN','')}) if action=='clear-route-cache' else api('route-cache')
+                  except APIRejection as e:
+                      # Branch authorization belongs to the server, which validates the
+                      # entire declaration or uses the last valid binding when malformed.
+                      if action=='clear-route-cache' and os.environ.get('GITHUB_EVENT_NAME')=='push' and e.status==403 and e.detail.get('error')=='branch not authorized by default-branch manifest':
                           print('No cache invalidation for a non-deployment branch')
                           sys.exit(0)
-                  result=api('route-cache/clear','POST',{'domain':os.environ.get('OP_DOMAIN','')}) if action=='clear-route-cache' else api('route-cache')
+                      raise
                   with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
                       f.write('Route cache operation: `'+action+'`\n\nCleared entries: `'+str(result['clearedEntries'])+'`\n\n')
                       for domain,count in result['entries'].items():f.write('- `'+domain+'`: '+str(count)+' cached paths\n')

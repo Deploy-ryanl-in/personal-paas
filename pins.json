@@ -47,11 +47,11 @@
   "templates": {
     "aspnet": {
       "repository": "Deploy-ryanl-in/template-aspnet",
-      "sha": "892557afb38b1ef9e78005e28ea0bd863701f6ab"
+      "sha": "bbe159933ad25deda8016b2ab845dea3963f7565"
     },
     "nextjs": {
       "repository": "Deploy-ryanl-in/template-nextjs",
-      "sha": "48ad98c7d65a06b5a7557f781c690811ff8abb66"
+      "sha": "8d0888c3ef7ae2921febdb1d0cc2cdebbb14afad"
     }
   }
 }

@@ -60,3 +60,25 @@
 - 测试URL现返回404；数据卷、加密备份、GHCR远程版本、示例仓库及历史保留。需要再运行示例时，直接Actions start；首次镜像拉取稍慢，不需要SSH。
 
 共享409表示结果冲突，不撤销服务已经执行的写入。建议生产项目使用明确路径过滤，或确保各服务只定义自己的接口；不得把本次冲突测试配置当作通用业务事务机制。
+
+## 2026-10-07：共享路由学习缓存
+
+平台更新 [debadca](https://github.com/Deploy-ryanl-in/personal-paas/actions/runs/37579051946) 通过全量竞争检测、静态检查、安装包校验及实际cgroup探针，已安装原VPS。新版模板固定可信的e91工作流，ASP.NET [CI](https://github.com/Deploy-ryanl-in/template-aspnet/actions/runs/37579609263)、Next.js [CI](https://github.com/Deploy-ryanl-in/template-nextjs/actions/runs/37579637303) 均成功。
+
+个人账号 [push CI/CD](https://github.com/RyanStanLin/sop-stateful-aspnet/actions/runs/37579694396) 和组织私有仓库 [push CI/CD](https://github.com/Deploy-ryanl-in/sop-route-peer/actions/runs/37579743726) 均成功；两个独立缓存清除job也成功。已删除Worker栈的重建问题在这轮验收中修复，原数据库、Redis和JSON数据验证保持原值。
+
+通过Cloudflare外部HTTPS，配合故意延迟2秒的404服务：
+
+| 验证 | 实测 |
+|---|---|
+| HTTP冷探测→命中 | 3.156秒→1.123秒，仍有两个接收服务 |
+| 请求复制 | 另一服务计数确认收到两次请求 |
+| 迟到冲突 | 命中先返回200；异步清除，下一次完整探测返回409“多服务冲突” |
+| WebSocket冷握手→命中 | 3.211秒→1.257秒，实际echo成功 |
+| 手动缓存清除 | [Actions](https://github.com/RyanStanLin/sop-stateful-aspnet/actions/runs/37580418753)清6条endpoint记录，下一次请求为miss |
+
+耗时包含客户端至Cloudflare的网络开销，不是服务器内部延迟承诺。缓存作用域、清除后旧请求不能重新写入、容量限制、方法/查询隔离和越权拒绝均有竞争检测测试。
+
+真实双子域名隔离验收：[组织三容器push](https://github.com/Deploy-ryanl-in/sop-route-peer/actions/runs/37580642467) 自动建立 `cache-other.ryanl.in` 的两个静态服务（每个32MiB），无需DNS记录；总运行预算704MiB。[手动指定endpoint清除](https://github.com/RyanStanLin/sop-stateful-aspnet/actions/runs/37581297215)后，endpoint为miss，cache-other仍为hit。
+
+[故意提交未知配置字段](https://github.com/RyanStanLin/sop-stateful-aspnet/actions/runs/37581379213)使校验失败、镜像构建与部署跳过，但独立清除job成功清除endpoint。外部HTTPS再次确认endpoint miss / cache-other hit，线上版本未替换。该错误为验收故意制造，之后恢复有效声明。
