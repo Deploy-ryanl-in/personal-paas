@@ -65,6 +65,16 @@ func (s *Server) authorize(next http.Handler) http.Handler {
 			return
 		}
 		m, e := s.GitHub.Manifest(ctx, id, id.DefaultBranch)
+		cacheOperation := (r.URL.Path == "/v1/route-cache/clear" || r.URL.Path == "/v1/route-cache") && strings.Contains(c.WorkflowRef, "/.github/workflows/operate.yml@") && (c.Event == "push" || c.Event == "workflow_dispatch")
+		// An invalid new declaration must still invalidate previously authorized
+		// routes. It cannot authorize a new deployment branch or domain.
+		if e != nil && cacheOperation {
+			m.DeployBranch = id.DefaultBranch
+			if previous, err := s.Store.LatestRelease(id.ID); err == nil {
+				m.DeployBranch = previous.Config.DeployBranch
+			}
+			e = nil
+		}
 		if e != nil || c.Ref != "refs/heads/"+m.DeployBranch {
 			fail(w, 403, errors.New("branch not authorized by default-branch manifest"))
 			return
@@ -162,7 +172,75 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			fail(w, 409, e)
 			return
 		}
+		if s.Engine != nil {
+			if _, _, e = s.Engine.ClearRouteCache(id.ID, m); e != nil {
+				fail(w, 500, e)
+				return
+			}
+		}
 		reply(w, 202, j)
+	case r.Method == "POST" && path == "route-cache/clear" || r.Method == "GET" && path == "route-cache":
+		if !strings.Contains(c.WorkflowRef, "/.github/workflows/operate.yml@") || c.Event != "push" && c.Event != "workflow_dispatch" {
+			fail(w, 403, errors.New("approved cache operation workflow required"))
+			return
+		}
+		var request struct {
+			Domain string `json:"domain"`
+		}
+		if r.Method == "POST" {
+			if err := decode(w, r, &request); err != nil {
+				fail(w, 400, err)
+				return
+			}
+		}
+		if s.Engine == nil || s.Engine.Proxy == nil || s.Engine.Proxy.Gateway == nil {
+			fail(w, 503, errors.New("route cache unavailable"))
+			return
+		}
+		m, declarationErr := s.GitHub.Manifest(r.Context(), id, c.SHA)
+		if declarationErr == nil {
+			bindings, err := s.Store.Domains(id.ID)
+			if err != nil {
+				fail(w, 500, err)
+				return
+			}
+			m, declarationErr = manifest.Resolve(m, id, bindings, s.Verifier.Policy.BaseDomain(), s.Verifier.Policy.ControlDomain())
+			if declarationErr == nil {
+				declarationErr = s.Store.CheckDomains(id.ID, m)
+			}
+		}
+		warning := ""
+		if declarationErr != nil {
+			m = manifest.Manifest{}
+			warning = "Invalid declaration: cleared only existing repository domains; new domains were not authorized"
+		}
+		domains, err := s.Engine.CacheDomains(id.ID, m)
+		if err != nil {
+			fail(w, 500, err)
+			return
+		}
+		if request.Domain != "" {
+			found := false
+			for _, domain := range domains {
+				if domain == request.Domain {
+					found = true
+				}
+			}
+			if !found {
+				fail(w, 403, errors.New("domain is not bound to this repository"))
+				return
+			}
+			domains = []string{request.Domain}
+		}
+		cleared := 0
+		if r.Method == "POST" {
+			if err = s.Store.Nonce(c.JTI, c.Exp); err != nil {
+				fail(w, 409, errors.New("OIDC token already used"))
+				return
+			}
+			cleared = s.Engine.Proxy.Gateway.ClearDomains(domains)
+		}
+		reply(w, 200, map[string]any{"domains": domains, "clearedEntries": cleared, "entries": s.Engine.Proxy.Gateway.CacheCounts(domains), "warning": warning})
 	case r.Method == "POST" && path == "operations":
 		if c.Event != "workflow_dispatch" || !strings.Contains(c.WorkflowRef, "/.github/workflows/operate.yml@") {
 			fail(w, 403, errors.New("manual operation workflow required"))

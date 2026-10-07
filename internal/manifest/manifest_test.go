@@ -31,6 +31,12 @@ func TestDomains(t *testing.T) {
 	if e != nil || m.Services["web"].Domain != "new-project.ryanl.in" {
 		t.Fatal(m, e)
 	}
+	s := m.Services["web"]
+	s.Domain = "api.ryanl.in"
+	m.Services["web"] = s
+	if _, e = Resolve(m, id, nil); e != nil {
+		t.Fatal("API namespace should be available", e)
+	}
 	for _, d := range []string{"ui.proxy.ryanl.in", "ping.ryanl.in", "evil.com", "a.ryanl.in.evil.com", "ryanl.in"} {
 		s := m.Services["web"]
 		s.Domain = d

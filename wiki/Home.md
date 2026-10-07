@@ -12,10 +12,11 @@
 4. [Redis 与 Worker](Redis-and-workers)
 5. [JSON 文件与持久卷](Persistent-files)
 6. [自定义和共享域名](Domains-and-shared-routing)
-7. [WebSocket](WebSocket)
-8. [Actions 操作、备份与恢复](Actions-operations)
-9. [排错与容量](Troubleshooting)
-10. [从零安装与账号绑定](Installation-and-account-binding)
-11. [验收记录](Acceptance)
+7. [路由缓存与清除](Route-cache)
+8. [WebSocket](WebSocket)
+9. [Actions 操作、备份与恢复](Actions-operations)
+10. [排错与容量](Troubleshooting)
+11. [从零安装与账号绑定](Installation-and-account-binding)
+12. [验收记录](Acceptance)
 
 这份 Wiki 的源文件同时保存在平台仓库 `wiki/`，便于版本审查和迁移。已有 3x-ui/Xray 属于独立基础设施，平台操作不会管理它们。

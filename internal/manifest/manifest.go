@@ -69,7 +69,7 @@ var dns = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 var envName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
 var mountTarget = regexp.MustCompile(`^/[a-zA-Z0-9_./-]+$`)
 var digest = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
-var forbidden = map[string]bool{"ping": true, "proxy": true, "ui": true, "deploy": true, "mail": true, "www": true, "api": true, "admin": true, "paas": true, "traefik": true, "localhost": true}
+var forbidden = map[string]bool{"ping": true, "proxy": true, "ui": true, "deploy": true, "mail": true, "www": true, "admin": true, "paas": true, "traefik": true, "localhost": true}
 
 // Decode rejects duplicate JSON keys before Go's decoder can silently replace them.
 func Decode(data []byte) (Manifest, error) {

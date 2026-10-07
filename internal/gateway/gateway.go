@@ -4,14 +4,15 @@ package gateway
 
 import (
 	"bytes"
+	"container/list"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -19,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,33 +37,57 @@ type Route struct {
 	Service      manifest.Service
 	URL          string
 }
-type snapshot struct{ Domains map[string][]Route }
+type domainRoutes struct {
+	Routes      []Route
+	Fingerprint string
+	Generation  *cacheGeneration
+}
+type cacheGeneration struct{ marker byte }
+type snapshot struct{ Domains map[string]domainRoutes }
 type Gateway struct {
 	routes    atomic.Pointer[snapshot]
 	key       []byte
 	slots     chan struct{}
+	watchers  chan struct{}
 	transport *http.Transport
+	mu        sync.Mutex
+	cache     map[cacheKey]*list.Element
+	lru       list.List
 }
 
 func New(key []byte) *Gateway {
-	g := &Gateway{key: append([]byte{}, key...), slots: make(chan struct{}, 32), transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ResponseHeaderTimeout: 10 * time.Second, MaxResponseHeaderBytes: 64 << 10, MaxIdleConns: 64, MaxIdleConnsPerHost: 8, IdleConnTimeout: 60 * time.Second}}
+	g := &Gateway{key: append([]byte{}, key...), slots: make(chan struct{}, 32), watchers: make(chan struct{}, 32), cache: map[cacheKey]*list.Element{}, transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ResponseHeaderTimeout: 10 * time.Second, MaxResponseHeaderBytes: 64 << 10, MaxIdleConns: 64, MaxIdleConnsPerHost: 8, IdleConnTimeout: 60 * time.Second}}
 	g.Update(nil)
 	return g
 }
 func (g *Gateway) Update(routes []Route) {
-	s := &snapshot{Domains: map[string][]Route{}}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	s := &snapshot{Domains: map[string]domainRoutes{}}
 	for _, r := range routes {
-		s.Domains[r.Service.Domain] = append(s.Domains[r.Service.Domain], r)
+		d := s.Domains[r.Service.Domain]
+		d.Routes = append(d.Routes, r)
+		s.Domains[r.Service.Domain] = d
 	}
-	for _, rs := range s.Domains {
+	old := g.routes.Load()
+	for name, domain := range s.Domains {
+		rs := domain.Routes
 		sort.Slice(rs, func(i, j int) bool {
 			if rs[i].RepositoryID == rs[j].RepositoryID {
 				return rs[i].ServiceName < rs[j].ServiceName
 			}
 			return rs[i].RepositoryID < rs[j].RepositoryID
 		})
+		data, _ := json.Marshal(rs)
+		domain.Fingerprint = string(data)
+		domain.Generation = &cacheGeneration{}
+		if old != nil && old.Domains[name].Fingerprint == domain.Fingerprint {
+			domain.Generation = old.Domains[name].Generation
+		}
+		s.Domains[name] = domain
 	}
 	g.routes.Store(s)
+	g.pruneGenerationsLocked(s)
 }
 func (g *Gateway) Sign(req *http.Request, repo int64, service string) {
 	token := fmt.Sprintf("%d:%s:%d", repo, service, time.Now().Unix()/60)
@@ -73,12 +99,16 @@ func (g *Gateway) signature(message string) string {
 	h.Write([]byte(message))
 	return hex.EncodeToString(h.Sum(nil))
 }
-func (g *Gateway) selectRoutes(req *http.Request) []Route {
+func requestDomain(req *http.Request) string {
 	host := strings.ToLower(req.Host)
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	routes := g.routes.Load().Domains[host]
+	return host
+}
+func (g *Gateway) selectRoutes(req *http.Request) ([]Route, domainRoutes, bool) {
+	domain := g.routes.Load().Domains[requestDomain(req)]
+	routes := domain.Routes
 	probe := req.Header.Get("X-Paas-Probe")
 	sig := req.Header.Get("X-Paas-Probe-Signature")
 	if probe != "" && len(g.key) > 0 && hmac.Equal([]byte(sig), []byte(g.signature(req.Host+"\n"+req.URL.Path+"\n"+probe))) {
@@ -88,7 +118,7 @@ func (g *Gateway) selectRoutes(req *http.Request) []Route {
 			if err == nil && minute >= time.Now().Unix()/60-1 && minute <= time.Now().Unix()/60 {
 				for _, route := range routes {
 					if fmt.Sprint(route.RepositoryID) == fields[0] && route.ServiceName == fields[1] && req.URL.Path == route.Service.Health.Path {
-						return []Route{route}
+						return []Route{route}, domain, true
 					}
 				}
 			}
@@ -100,7 +130,7 @@ func (g *Gateway) selectRoutes(req *http.Request) []Route {
 			matching = append(matching, r)
 		}
 	}
-	return matching
+	return matching, domain, false
 }
 func conflict(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
@@ -116,7 +146,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "shared ingress busy", 503)
 		return
 	}
-	routes := g.selectRoutes(req)
+	routes, domain, probe := g.selectRoutes(req)
+	key := routeKey(req, domain)
+	if probe {
+		key.Generation = nil
+	}
 	req.Header.Del("X-Paas-Probe")
 	req.Header.Del("X-Paas-Probe-Signature")
 	if len(routes) == 0 {
@@ -124,68 +158,14 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if strings.EqualFold(req.Header.Get("Upgrade"), "websocket") {
-		g.websocket(w, req, routes)
+		g.websocket(w, req, routes, key)
 		return
 	}
 	if len(routes) == 1 {
 		g.proxy(routes[0]).ServeHTTP(w, req)
 		return
 	}
-	// All matching applications receive this request exactly once. Only HTTP 404
-	// means "unhandled". Conflicts do not undo application-side writes.
-	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, MaxBody))
-	if err != nil {
-		http.Error(w, "shared request body exceeds 1 MiB", http.StatusRequestEntityTooLarge)
-		return
-	}
-	type result struct {
-		response *http.Response
-		err      error
-		route    Route
-	}
-	results := make(chan result, len(routes))
-	for _, route := range routes {
-		go func(route Route) { resp, err := g.dispatch(req, route, body); results <- result{resp, err, route} }(route)
-	}
-	responses := []*http.Response{}
-	failures := false
-	for range routes {
-		v := <-results
-		if v.err != nil {
-			failures = true
-			slog.Warn("shared HTTP participant failed", "repository", v.route.RepositoryID, "service", v.route.ServiceName)
-			continue
-		}
-		if v.response.StatusCode == http.StatusNotFound {
-			v.response.Body.Close()
-			continue
-		}
-		responses = append(responses, v.response)
-	}
-	defer func() {
-		for _, response := range responses {
-			response.Body.Close()
-		}
-	}()
-	w.Header().Set("X-Paas-Recipients", strconv.Itoa(len(routes)))
-	if len(responses) > 1 {
-		conflict(w)
-		return
-	}
-	// A timed out participant might also handle the path: never silently choose
-	// another reply when conflict detection could not finish.
-	if failures {
-		http.Error(w, "shared participant unavailable", 502)
-		return
-	}
-	if len(responses) == 0 {
-		http.NotFound(w, req)
-		return
-	}
-	proxy := g.proxy(routes[0])
-	proxy.Transport = responseTransport{responses[0]}
-	req.Body = http.NoBody
-	proxy.ServeHTTP(w, req)
+	g.sharedHTTP(w, req, routes, key)
 }
 
 type responseTransport struct{ response *http.Response }
@@ -223,85 +203,10 @@ func (g *Gateway) dispatch(req *http.Request, route Route, body []byte) (*http.R
 	removeHop(copy.Header)
 	return g.transport.RoundTrip(copy)
 }
-func (g *Gateway) websocket(w http.ResponseWriter, req *http.Request, routes []Route) {
+func (g *Gateway) bridge(w http.ResponseWriter, req *http.Request, backend *websocket.Conn) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	backends := []*websocket.Conn{}
-	responses := []*http.Response{}
-	defer func() {
-		for _, c := range backends {
-			c.CloseNow()
-		}
-		for _, r := range responses {
-			if r.Body != nil {
-				r.Body.Close()
-			}
-		}
-	}()
-	protocols := []string{}
-	for _, v := range strings.Split(req.Header.Get("Sec-WebSocket-Protocol"), ",") {
-		if v = strings.TrimSpace(v); v != "" {
-			protocols = append(protocols, v)
-		}
-	}
-	failed := false
-	for _, route := range routes {
-		target, _ := url.Parse(route.URL)
-		target.Scheme = "ws"
-		target.Path = req.URL.Path
-		target.RawPath = req.URL.RawPath
-		target.RawQuery = req.URL.RawQuery
-		headers := req.Header.Clone()
-		removeHop(headers)
-		for key := range headers {
-			if strings.HasPrefix(strings.ToLower(key), "sec-websocket-") {
-				headers.Del(key)
-			}
-		}
-		headers.Set("Host", req.Host)
-		dialCtx, stop := context.WithTimeout(ctx, 8*time.Second)
-		c, resp, err := websocket.Dial(dialCtx, target.String(), &websocket.DialOptions{HTTPClient: &http.Client{Transport: g.transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, HTTPHeader: headers, Subprotocols: protocols})
-		stop()
-		if err != nil {
-			if resp == nil {
-				failed = true
-				continue
-			}
-			if resp.StatusCode == 404 {
-				if resp.Body != nil {
-					resp.Body.Close()
-				}
-				continue
-			}
-			responses = append(responses, resp)
-			continue
-		}
-		c.SetReadLimit(MaxMessage)
-		backends = append(backends, c)
-	}
-	if len(backends)+len(responses) > 1 {
-		conflict(w)
-		return
-	}
-	if failed {
-		http.Error(w, "shared WebSocket participant unavailable", 502)
-		return
-	}
-	if len(responses) == 1 {
-		response := responses[0]
-		removeHop(response.Header)
-		for k, v := range response.Header {
-			w.Header()[k] = v
-		}
-		w.WriteHeader(response.StatusCode)
-		io.Copy(w, io.LimitReader(response.Body, MaxBody))
-		return
-	}
-	if len(backends) == 0 {
-		http.NotFound(w, req)
-		return
-	}
-	backend := backends[0]
+	defer backend.CloseNow()
 	accepted := []string{}
 	if protocol := backend.Subprotocol(); protocol != "" {
 		accepted = append(accepted, protocol)

@@ -7,6 +7,8 @@
 | `status` | 当前active/stopped/inactive、commit、release |
 | `routes` | 同域名所有服务、过滤器、运行状态 |
 | `logs` | 指定service最近200行，应用秘密值自动遮蔽 |
+| `route-cache` | 查看本仓库相关子域名的路由缓存条数 |
+| `clear-route-cache` | 立即清缓存；domain留空清本仓库所有相关域名，填完整域名仅清该域名 |
 | `history` | 90天部署/操作记录 |
 | `start` | 启动最后成功版本；已active则幂等；已delete则重新拉取并重建 |
 | `stop` | 移除线上路由，停止容器，保留容器身份和卷 |

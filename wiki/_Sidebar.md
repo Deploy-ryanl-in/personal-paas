@@ -5,6 +5,7 @@
 - [Redis / Worker](Redis-and-workers)
 - [持久文件](Persistent-files)
 - [域名 / 共享路由](Domains-and-shared-routing)
+- [路由缓存](Route-cache)
 - [WebSocket](WebSocket)
 - [Actions / 备份](Actions-operations)
 - [排错](Troubleshooting)

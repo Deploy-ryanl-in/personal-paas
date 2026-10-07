@@ -179,6 +179,7 @@ on:
       image: {required: false, type: string, default: ''}
       backup-id: {required: false, type: string, default: ''}
       confirm: {required: false, type: string, default: ''}
+      domain: {required: false, type: string, default: ''}
 permissions: {}
 jobs:
   operate:
@@ -200,6 +201,7 @@ jobs:
           OP_IMAGE: ${{ inputs.image }}
           OP_BACKUP: ${{ inputs.backup-id }}
           OP_CONFIRM: ${{ inputs.confirm }}
+          OP_DOMAIN: ${{ inputs.domain }}
         run: |
           python3 - <<'PY'
 '''+embedded+'''
@@ -283,13 +285,20 @@ on:
 permissions:
   contents: read
 jobs:
+  invalidate_cache:
+    if: github.event_name == 'push' && !github.event.repository.is_template
+    permissions: {contents: read, actions: read, id-token: write}
+    uses: '''+args.repository+'''/.github/workflows/operate.yml@'''+sha+'''
+    with:
+      deployment-url: '''+args.deployment_url+'''
+      action: clear-route-cache
   test:
     runs-on: ubuntu-24.04
     steps:
       - uses: '''+action('actions/checkout')+'''
         with: {persist-credentials: false}
 '''+setup+'''  release:
-    needs: test
+    needs: [test, invalidate_cache]
     if: github.event_name == 'push' && !github.event.repository.is_template
     permissions:
       contents: read
@@ -312,8 +321,9 @@ on:
       action:
         description: Fixed platform operation
         type: choice
-        options: [status, routes, history, logs, start, stop, restart, delete, cleanup-images, redeploy, rollback, backup, backups, download-backup, restore, database-upgrade]
+        options: [status, routes, route-cache, clear-route-cache, history, logs, start, stop, restart, delete, cleanup-images, redeploy, rollback, backup, backups, download-backup, restore, database-upgrade]
         default: status
+      domain: {description: 'Cache domain (empty means all domains of this repository)', type: string}
       service: {description: Named service, default: web, type: string}
       release-id: {description: Rollback release ID, type: string}
       image: {description: Approved database image digest, type: string}
@@ -329,6 +339,7 @@ jobs:
     with:
       deployment-url: '''+args.deployment_url+'''
       action: ${{ inputs.action }}
+      domain: ${{ inputs.domain }}
       service: ${{ inputs.service }}
       release-id: ${{ inputs.release-id }}
       image: ${{ inputs.image }}

@@ -163,6 +163,9 @@ func (e *Engine) Admission(ctx context.Context, r, old store.Release) error {
 	return nil
 }
 func (e *Engine) Deploy(ctx context.Context, r store.Release) (err error) {
+	if _, _, err = e.ClearRouteCache(r.Repo.ID, r.Config); err != nil {
+		return err
+	}
 	old, oldErr := e.Store.Active(r.Repo.ID)
 	if oldErr != nil && oldErr != sql.ErrNoRows {
 		return oldErr

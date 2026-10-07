@@ -9,6 +9,7 @@ on:
       image: {required: false, type: string, default: ''}
       backup-id: {required: false, type: string, default: ''}
       confirm: {required: false, type: string, default: ''}
+      domain: {required: false, type: string, default: ''}
 permissions: {}
 jobs:
   operate:
@@ -30,6 +31,7 @@ jobs:
           OP_IMAGE: ${{ inputs.image }}
           OP_BACKUP: ${{ inputs.backup-id }}
           OP_CONFIRM: ${{ inputs.confirm }}
+          OP_DOMAIN: ${{ inputs.domain }}
         run: |
           python3 - <<'PY'
           """This code is embedded in trusted reusable workflow steps, not fetched from the app."""
@@ -114,7 +116,23 @@ jobs:
               poll(api('deployments','POST',{'images':images,'secrets':selected}))
           else:
               action=os.environ['OP_ACTION']
-              if action in ['status','routes','history','backups','logs']:
+              if action in ['clear-route-cache','route-cache']:
+                  if action=='clear-route-cache' and os.environ.get('GITHUB_EVENT_NAME')=='push':
+                      repository=request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY'],token=os.environ['GH_TOKEN'])
+                      declaration=request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/paas.json?ref='+urllib.parse.quote(repository['default_branch'],safe=''),token=os.environ['GH_TOKEN'])
+                      import base64
+                      try:config=json.loads(base64.b64decode(declaration['content']))
+                      except (ValueError,KeyError):config={}
+                      if config.get('deployBranch') and os.environ['GITHUB_REF']!='refs/heads/'+config['deployBranch']:
+                          print('No cache invalidation for a non-deployment branch')
+                          sys.exit(0)
+                  result=api('route-cache/clear','POST',{'domain':os.environ.get('OP_DOMAIN','')}) if action=='clear-route-cache' else api('route-cache')
+                  with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+                      f.write('Route cache operation: `'+action+'`\n\nCleared entries: `'+str(result['clearedEntries'])+'`\n\n')
+                      for domain,count in result['entries'].items():f.write('- `'+domain+'`: '+str(count)+' cached paths\n')
+                  if result.get('warning'):print('::warning title=Route cache::'+result['warning'])
+                  print(json.dumps(result,indent=2))
+              elif action in ['status','routes','history','backups','logs']:
                   route=action
                   if action=='logs':
                       import urllib.parse
