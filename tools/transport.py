@@ -57,16 +57,16 @@ def shared_summary():
                 paths=(member.get('routing') or {}).get('paths') or ['all paths']
                 f.write('- `'+(member['repository'] or str(member['repositoryId']))+'/'+member['service']+'`: '+', '.join('`'+p+'`' for p in paths)+' ('+('active' if member['active'] else 'inactive')+')\n')
             print('::warning title=Shared domain::'+domain+' is shared by '+', '.join((m['repository'] or str(m['repositoryId']))+'/'+m['service'] for m in items))
+def unique(pairs):
+    result={}
+    for k,v in pairs:
+        if k in result:raise ValueError('duplicate manifest key')
+        result[k]=v
+    return result
 if os.environ['PAAS_MODE']=='deploy':
     repo=os.environ['GITHUB_REPOSITORY'];sha=os.environ['GITHUB_SHA']
     manifest=request('https://api.github.com/repos/'+repo+'/contents/paas.json?ref='+sha,token=os.environ['GH_TOKEN'])
     import base64
-    def unique(pairs):
-        result={}
-        for k,v in pairs:
-            if k in result:raise ValueError('duplicate manifest key')
-            result[k]=v
-        return result
     config=json.loads(base64.b64decode(manifest['content']),object_pairs_hook=unique)
     supplied=json.loads(os.environ.get('PAAS_SECRETS') or '{}',object_pairs_hook=unique)
     wanted={ref for s in config['services'].values() for ref in s.get('secretRefs',{}).values()} if config['state']=='present' else set()
@@ -83,10 +83,12 @@ else:
     if action in ['clear-route-cache','route-cache']:
         if action=='clear-route-cache' and os.environ.get('GITHUB_EVENT_NAME')=='push':
             repository=request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY'],token=os.environ['GH_TOKEN'])
-            declaration=request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/paas.json?ref='+urllib.parse.quote(repository['default_branch'],safe=''),token=os.environ['GH_TOKEN'])
             import base64
-            try:config=json.loads(base64.b64decode(declaration['content']))
-            except (ValueError,KeyError):config={}
+            try:
+                declaration=request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/paas.json?ref='+urllib.parse.quote(repository['default_branch'],safe=''),token=os.environ['GH_TOKEN'])
+                config=json.loads(base64.b64decode(declaration['content']),object_pairs_hook=unique)
+            except TransientRequestError:raise
+            except (RuntimeError,ValueError,KeyError):config={}
             if config.get('deployBranch') and os.environ['GITHUB_REF']!='refs/heads/'+config['deployBranch']:
                 print('No cache invalidation for a non-deployment branch')
                 sys.exit(0)
