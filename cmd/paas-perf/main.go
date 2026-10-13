@@ -208,7 +208,7 @@ func load(base, host, dial string, count, rps int, duration time.Duration) repor
 				h.Set("Host", host)
 			}
 			dialCtx, stop := context.WithTimeout(ctx, 15*time.Second)
-			c, _, err := websocket.Dial(dialCtx, "ws"+strings.TrimPrefix(base, "http")+"/subscribe", &websocket.DialOptions{HTTPClient: client, HTTPHeader: h})
+			c, _, err := websocket.Dial(dialCtx, "ws"+strings.TrimPrefix(base, "http")+"/subscribe", &websocket.DialOptions{HTTPClient: client, HTTPHeader: h, Host: host})
 			if err != nil {
 				stop()
 				dialFailures.Add(1)

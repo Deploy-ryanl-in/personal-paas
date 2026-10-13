@@ -41,7 +41,7 @@ func (g *Gateway) dialWebSocket(req *http.Request, route Route) websocketResult 
 			headers.Del(key)
 		}
 	}
-	headers.Set("Host", req.Host)
+	headers.Del("Host")
 	protocols := []string{}
 	for _, v := range strings.Split(req.Header.Get("Sec-WebSocket-Protocol"), ",") {
 		if v = strings.TrimSpace(v); v != "" {
@@ -50,7 +50,7 @@ func (g *Gateway) dialWebSocket(req *http.Request, route Route) websocketResult 
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(req.Context()), 8*time.Second)
 	defer cancel()
-	c, resp, err := websocket.Dial(ctx, target.String(), &websocket.DialOptions{HTTPClient: &http.Client{Transport: g.transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, HTTPHeader: headers, Subprotocols: protocols})
+	c, resp, err := websocket.Dial(ctx, target.String(), &websocket.DialOptions{HTTPClient: &http.Client{Transport: g.transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, Host: req.Host, HTTPHeader: headers, Subprotocols: protocols})
 	if c != nil {
 		c.SetReadLimit(MaxMessage)
 	}

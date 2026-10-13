@@ -152,3 +152,23 @@ func TestHTTPSaturationDoesNotConsumeWebSocketCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWebSocketPreservesPublicHostAndOrigin(t *testing.T) {
+	backend := subscriptionBackend(t)
+	defer backend.Close()
+	g := New(nil)
+	g.Update([]Route{fixture(backend.URL, 1)})
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { g.ServeHTTP(w, r) }))
+	defer front.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(front.URL, "http")+"/subscribe", &websocket.DialOptions{Host: "endpoint.ryanl.in", HTTPHeader: http.Header{"Origin": []string{"https://endpoint.ryanl.in"}}})
+	if err != nil {
+		t.Fatal("public Origin rejected after proxying Host", err)
+	}
+	defer c.CloseNow()
+	_, data, err := c.Read(ctx)
+	if err != nil || string(data) != "tick" {
+		t.Fatal("subscription did not survive origin verification", err)
+	}
+}
