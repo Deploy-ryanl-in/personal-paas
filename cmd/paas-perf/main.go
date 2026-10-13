@@ -36,12 +36,13 @@ func main() {
 	connections := flag.Int("connections", 1000, "Acknowledged subscriptions")
 	rps := flag.Int("rps", 100, "Paced HTTP requests/sec")
 	duration := flag.Duration("duration", 120*time.Second, "Sustained window after ramp")
+	ramp := flag.Duration("ramp", 5*time.Millisecond, "Interval between subscription connection attempts")
 	output := flag.String("output", "", "JSON result file")
 	flag.Parse()
-	if *connections < 0 || *connections > 10000 || *rps < 1 || *rps > 10000 || *duration < time.Second {
+	if *connections < 0 || *connections > 10000 || *rps < 1 || *rps > 10000 || *duration < time.Second || *ramp < 0 {
 		panic("invalid load parameters")
 	}
-	result := load(*base, *host, *dial, *connections, *rps, *duration)
+	result := loadWithRamp(*base, *host, *dial, *connections, *rps, *duration, *ramp)
 	data, _ := json.MarshalIndent(result, "", "  ")
 	fmt.Println(string(data))
 	if *output != "" {
@@ -149,26 +150,27 @@ func serve() {
 }
 
 type report struct {
-	URL             string  `json:"url"`
-	Requested       int     `json:"requestedSubscriptions"`
-	Established     int     `json:"establishedSubscriptions"`
-	DialFailures    int     `json:"dialFailures"`
-	Disconnects     int64   `json:"unexpectedDisconnects"`
-	SequenceGaps    int64   `json:"sequenceGaps"`
-	Messages        int64   `json:"subscriptionMessages"`
-	MinimumMessages int64   `json:"minimumMessagesPerSubscriber"`
-	TargetRPS       int     `json:"targetRps"`
-	Scheduled       int64   `json:"httpScheduled"`
-	Completed       int64   `json:"httpCompleted"`
-	Errors          int64   `json:"httpErrors"`
-	SchedulerDrops  int64   `json:"schedulerDrops"`
-	EffectiveRPS    float64 `json:"effectiveRps"`
-	P50             float64 `json:"httpP50Ms"`
-	P95             float64 `json:"httpP95Ms"`
-	P99             float64 `json:"httpP99Ms"`
-	WindowSeconds   float64 `json:"windowSeconds"`
-	RampSeconds     float64 `json:"rampSeconds"`
-	Passed          bool    `json:"passed"`
+	URL               string  `json:"url"`
+	Requested         int     `json:"requestedSubscriptions"`
+	Established       int     `json:"establishedSubscriptions"`
+	DialFailures      int     `json:"dialFailures"`
+	DialFailureSample string  `json:"dialFailureSample,omitempty"`
+	Disconnects       int64   `json:"unexpectedDisconnects"`
+	SequenceGaps      int64   `json:"sequenceGaps"`
+	Messages          int64   `json:"subscriptionMessages"`
+	MinimumMessages   int64   `json:"minimumMessagesPerSubscriber"`
+	TargetRPS         int     `json:"targetRps"`
+	Scheduled         int64   `json:"httpScheduled"`
+	Completed         int64   `json:"httpCompleted"`
+	Errors            int64   `json:"httpErrors"`
+	SchedulerDrops    int64   `json:"schedulerDrops"`
+	EffectiveRPS      float64 `json:"effectiveRps"`
+	P50               float64 `json:"httpP50Ms"`
+	P95               float64 `json:"httpP95Ms"`
+	P99               float64 `json:"httpP99Ms"`
+	WindowSeconds     float64 `json:"windowSeconds"`
+	RampSeconds       float64 `json:"rampSeconds"`
+	Passed            bool    `json:"passed"`
 }
 
 func percentile(values []float64, p float64) float64 {
@@ -181,6 +183,9 @@ func percentile(values []float64, p float64) float64 {
 }
 
 func load(base, host, dial string, count, rps int, duration time.Duration) report {
+	return loadWithRamp(base, host, dial, count, rps, duration, 5*time.Millisecond)
+}
+func loadWithRamp(base, host, dial string, count, rps int, duration, ramp time.Duration) report {
 	transport := &http.Transport{Proxy: nil, MaxIdleConns: 256, MaxIdleConnsPerHost: 128, MaxConnsPerHost: 256, ResponseHeaderTimeout: 10 * time.Second, TLSHandshakeTimeout: 10 * time.Second, ForceAttemptHTTP2: true}
 	if dial != "" {
 		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -196,6 +201,8 @@ func load(base, host, dial string, count, rps int, duration time.Duration) repor
 	counts := make([]atomic.Int64, count)
 	connections := make([]*websocket.Conn, count)
 	var dialFailures atomic.Int64
+	var firstFailure string
+	var failureOnce sync.Once
 	var readers, dials sync.WaitGroup
 	start := time.Now()
 	// A bounded ramp avoids making TLS burst capacity the steady-state test.
@@ -212,6 +219,7 @@ func load(base, host, dial string, count, rps int, duration time.Duration) repor
 			if err != nil {
 				stop()
 				dialFailures.Add(1)
+				failureOnce.Do(func() { firstFailure = err.Error() })
 				return
 			}
 			err = c.Write(dialCtx, websocket.MessageText, []byte(`{"op":"subscribe","topic":"ticks"}`))
@@ -226,6 +234,7 @@ func load(base, host, dial string, count, rps int, duration time.Duration) repor
 			if err != nil {
 				c.CloseNow()
 				dialFailures.Add(1)
+				failureOnce.Do(func() { firstFailure = err.Error() })
 				return
 			}
 			connections[i] = c
@@ -259,10 +268,11 @@ func load(base, host, dial string, count, rps int, duration time.Duration) repor
 				}
 			}()
 		}(i)
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(ramp)
 	}
 	dials.Wait()
 	result := report{URL: base, Requested: count, Established: int(active.Load()), DialFailures: int(dialFailures.Load()), TargetRPS: rps, RampSeconds: time.Since(start).Seconds(), WindowSeconds: duration.Seconds()}
+	result.DialFailureSample = firstFailure
 	measuring.Store(true)
 	var scheduled, completed, httpErrors, schedulerDrops atomic.Int64
 	var requests sync.WaitGroup
