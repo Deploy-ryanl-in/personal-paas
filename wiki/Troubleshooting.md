@@ -25,3 +25,11 @@
 实测 Python 默认 `Python-urllib` User-Agent 会被现有 Browser Integrity Check 拒绝。模板 API 验收脚本声明 `Personal-PaaS-Smoke/1.0` 客户端标识后正常通过；没有关闭全站安全规则。先比较响应体和 `CF-Ray`，1010 属于浏览器签名阻挡；应用401是API令牌校验，二者不要混淆。参见 [Cloudflare BIC](https://developers.cloudflare.com/waf/tools/browser-integrity-check/)。
 
 手动 stop/delete/restore 等更新操作创建版本屏障。尚未完成的较早push可能被拒绝为 `stale workflow run`，这是避免旧流水线覆盖新管理操作的保护。先等当前操作结束，再正常commit/push；不要删除状态或绕过OIDC。
+
+## WebSocket与性能排查
+
+握手应返回101，随后订阅必须收到应用确认和持续事件。只看TCP连接数不能证明订阅可用。503可能是网关连接或HTTP准入已满，也可能是应用限流；先检查响应来源及应用日志。HTTP并发名额和长期WebSocket现在分别计数，使用旧控制器时32条长期连接会占满入口。
+
+浏览器Origin由应用验证，网关保留公共Host；不要为排错全局关闭Origin校验。多域名应用需要在应用内声明允许的Origin。共享域名多个服务同时接受握手会409，优先用独立路径。
+
+应用内存不足、PID线程不足、文件描述符不足、CPU限额和慢消费者都会影响连接数。增加容器预算仍受全VPS768MiB准入限制；不能只增连接常量却不测活跃消息。按Performance中的命令同时测试订阅消息、100RPS、错误率、延迟、CPU和内存。

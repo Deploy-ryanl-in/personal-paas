@@ -42,3 +42,7 @@ Requires Go 1.27.1. Run `go test ./...`, `go vet ./...`, and `go build ./cmd/paa
 There is one production stack per immutable GitHub repository ID. A repository rename keeps its initially bound automatic domain. Only one-label application subdomains of `ryanl.in` are allowed; infrastructure names are reserved.
 
 Clean VPS installation and rebinding: see [install/reinstall from zero](docs/reinstall.md). Both personal accounts and organizations are authorized by immutable owner ID; no per-repository allowlist is needed under a trusted owner.
+
+## Developer guide and performance
+
+Start with [Wiki quick start](https://github.com/Deploy-ryanl-in/personal-paas/wiki/Quick-start), [complete configuration](https://github.com/Deploy-ryanl-in/personal-paas/wiki/Configuration-reference), and [environment/secrets](https://github.com/Deploy-ryanl-in/personal-paas/wiki/Environment-and-secrets). The opt-in [subscription benchmark](cmd/paas-perf/README.md) compares the same application directly and through the platform while maintaining active subscriptions and paced HTTP traffic.

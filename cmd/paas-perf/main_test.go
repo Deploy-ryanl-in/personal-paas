@@ -72,7 +72,7 @@ func TestLoadRejectsFailedSubscriptions(t *testing.T) {
 	}))
 	defer s.Close()
 	r := load(s.URL, "", "", 2, 10, time.Second)
-	if r.Passed || r.Established != 0 || r.DialFailures != 2 || r.MinimumMessages != 0 || r.Completed != 10 {
+	if r.Passed || r.Established != 0 || r.DialFailures != 2 || r.DialFailureSample == "" || r.MinimumMessages != 0 || r.Completed != 10 {
 		t.Fatalf("false subscription success: %+v", r)
 	}
 }

@@ -15,3 +15,13 @@ node scripts/ws-smoke.mjs https://endpoint.ryanl.in /ws/app
 不同服务建议定义 `/ws/user` 与 `/ws/app`，同步在应用与 `routing.paths` 中声明。服务更新会让已有连接在旧容器退出后断开，客户端需要重连；不会把已建立的连接迁移到新进程。
 
 [Traefik官方WebSocket说明](https://doc.traefik.io/traefik/master/user-guides/websocket/)
+
+## 并发与订阅
+
+订阅是应用协议，平台不创建主题或消息队列。客户端先完成WSS握手，再发送应用要求的subscribe消息，并持续读取服务器事件。ASP.NET默认/ws是echo示例，需要在业务代码实现主题、鉴权和订阅状态。
+
+网关现在分别限制128个处理中HTTP请求和2048条WebSocket连接，长期连接不会占用HTTP名额。限额是整台网关的总量，包含所有仓库；不是每个应用2048。超出限额返回503，关闭后释放。反向代理服务的文件描述符限额为65536。应用内存、CPU、PID及自己的连接上限仍要配置。实际1000订阅与100RPS组合负载及平台开销见[性能记录](Performance)。
+
+每条订阅至少持续读取消息，处理close/error，使用带抖动的指数退避重连并重新订阅。更新会断开旧容器连接，不能期待连接在进程切换时无缝迁移。慢客户端写入超时10秒；单消息64KiB。应用应限制主题数、每连接队列长度和广播频率，防止慢订阅者无限积压。
+
+Cloudflare初始Upgrade仍经过WAF，已建立连接也可能因边缘升级或空闲而关闭，因此客户端要实现心跳和重订阅。参见[Cloudflare WebSocket文档](https://developers.cloudflare.com/network/websockets/)。
