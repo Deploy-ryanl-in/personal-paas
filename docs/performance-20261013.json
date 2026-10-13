@@ -1,0 +1,244 @@
+{
+  "date": "2026-10-13",
+  "fixture": {
+    "eventPayloadBytes": 256,
+    "eventsPerSecondPerSubscriber": 1,
+    "httpPayloadBytes": 512,
+    "applicationMemoryMiB": 96,
+    "applicationCpu": 0.5,
+    "hostVcpu": 1,
+    "hostMemoryGiB": 2
+  },
+  "runtimeCommit": "e510906537dc74d6bec918fa8283a18d49b5bc72",
+  "stages": {
+    "before": {
+      "requestedSubscriptions": 1000,
+      "establishedSubscriptions": 32,
+      "dialFailures": 968,
+      "unexpectedDisconnects": 0,
+      "sequenceGaps": 0,
+      "subscriptionMessages": 640,
+      "minimumMessagesPerSubscriber": 0,
+      "targetRps": 100,
+      "httpScheduled": 2000,
+      "httpCompleted": 0,
+      "httpErrors": 2000,
+      "schedulerDrops": 0,
+      "effectiveRps": 0,
+      "httpP50Ms": 0,
+      "httpP95Ms": 0,
+      "httpP99Ms": 0,
+      "windowSeconds": 20,
+      "rampSeconds": 5.696859753,
+      "passed": false,
+      "resources": {
+        "controller": {
+          "cpuPercent": 3.84,
+          "peakRssMiB": 24.41,
+          "peakCgroupMiB": 28.34,
+          "peakFds": 83
+        },
+        "traefik": {
+          "cpuPercent": 0.12,
+          "peakRssMiB": 34.12,
+          "peakCgroupMiB": 36.79,
+          "peakFds": 9
+        }
+      }
+    },
+    "direct": {
+      "requestedSubscriptions": 1000,
+      "establishedSubscriptions": 1000,
+      "dialFailures": 0,
+      "unexpectedDisconnects": 0,
+      "sequenceGaps": 0,
+      "subscriptionMessages": 120000,
+      "minimumMessagesPerSubscriber": 120,
+      "targetRps": 100,
+      "httpScheduled": 12000,
+      "httpCompleted": 12000,
+      "httpErrors": 0,
+      "schedulerDrops": 0,
+      "effectiveRps": 99.99922661431464,
+      "httpP50Ms": 1.079,
+      "httpP95Ms": 70.354,
+      "httpP99Ms": 111.875,
+      "windowSeconds": 120,
+      "rampSeconds": 5.436000603,
+      "passed": true,
+      "resources": {
+        "controller": {
+          "cpuPercent": 0.09,
+          "peakRssMiB": 24.41,
+          "peakCgroupMiB": 28.09,
+          "peakFds": 15
+        },
+        "traefik": {
+          "cpuPercent": 0,
+          "peakRssMiB": 34.12,
+          "peakCgroupMiB": 36.79,
+          "peakFds": 9
+        }
+      }
+    },
+    "gateway": {
+      "requestedSubscriptions": 1000,
+      "establishedSubscriptions": 1000,
+      "dialFailures": 0,
+      "unexpectedDisconnects": 0,
+      "sequenceGaps": 0,
+      "subscriptionMessages": 120000,
+      "minimumMessagesPerSubscriber": 120,
+      "targetRps": 100,
+      "httpScheduled": 12000,
+      "httpCompleted": 12000,
+      "httpErrors": 0,
+      "schedulerDrops": 0,
+      "effectiveRps": 99.99974327815906,
+      "httpP50Ms": 1.258,
+      "httpP95Ms": 115.526,
+      "httpP99Ms": 162.147,
+      "windowSeconds": 120,
+      "rampSeconds": 5.63954358,
+      "passed": true,
+      "resources": {
+        "controller": {
+          "cpuPercent": 9.91,
+          "peakRssMiB": 111.53,
+          "peakCgroupMiB": 122.91,
+          "peakFds": 2083
+        },
+        "traefik": {
+          "cpuPercent": 0.05,
+          "peakRssMiB": 36.55,
+          "peakCgroupMiB": 37.33,
+          "peakFds": 43
+        }
+      }
+    },
+    "shared": {
+      "requestedSubscriptions": 1000,
+      "establishedSubscriptions": 1000,
+      "dialFailures": 0,
+      "unexpectedDisconnects": 0,
+      "sequenceGaps": 0,
+      "subscriptionMessages": 120000,
+      "minimumMessagesPerSubscriber": 120,
+      "targetRps": 100,
+      "httpScheduled": 12000,
+      "httpCompleted": 12000,
+      "httpErrors": 0,
+      "schedulerDrops": 0,
+      "effectiveRps": 99.99931154473974,
+      "httpP50Ms": 2.948,
+      "httpP95Ms": 132.813,
+      "httpP99Ms": 181.53,
+      "windowSeconds": 120,
+      "rampSeconds": 5.7038383580000005,
+      "passed": true,
+      "resources": {
+        "controller": {
+          "cpuPercent": 13.25,
+          "peakRssMiB": 116.3,
+          "peakCgroupMiB": 129.81,
+          "peakFds": 2164
+        },
+        "traefik": {
+          "cpuPercent": 0.01,
+          "peakRssMiB": 36.55,
+          "peakCgroupMiB": 37.2,
+          "peakFds": 25
+        }
+      }
+    },
+    "https-origin": {
+      "requestedSubscriptions": 1000,
+      "establishedSubscriptions": 1000,
+      "dialFailures": 0,
+      "unexpectedDisconnects": 0,
+      "sequenceGaps": 0,
+      "subscriptionMessages": 120000,
+      "minimumMessagesPerSubscriber": 120,
+      "targetRps": 100,
+      "httpScheduled": 12000,
+      "httpCompleted": 12000,
+      "httpErrors": 0,
+      "schedulerDrops": 0,
+      "effectiveRps": 99.99948753595955,
+      "httpP50Ms": 2.432,
+      "httpP95Ms": 178.775,
+      "httpP99Ms": 245.279,
+      "windowSeconds": 120,
+      "rampSeconds": 14.446211719,
+      "passed": true,
+      "resources": {
+        "controller": {
+          "cpuPercent": 9.28,
+          "peakRssMiB": 116.62,
+          "peakCgroupMiB": 129.07,
+          "peakFds": 2103
+        },
+        "traefik": {
+          "cpuPercent": 12.06,
+          "peakRssMiB": 118.16,
+          "peakCgroupMiB": 128,
+          "peakFds": 2050
+        }
+      }
+    },
+    "tls-final": {
+      "requestedSubscriptions": 1000,
+      "establishedSubscriptions": 1000,
+      "dialFailures": 0,
+      "unexpectedDisconnects": 0,
+      "sequenceGaps": 0,
+      "subscriptionMessages": 120000,
+      "minimumMessagesPerSubscriber": 120,
+      "targetRps": 100,
+      "httpScheduled": 12000,
+      "httpCompleted": 12000,
+      "httpErrors": 0,
+      "schedulerDrops": 0,
+      "effectiveRps": 99.99980959202922,
+      "httpP50Ms": 1.355,
+      "httpP95Ms": 154.441,
+      "httpP99Ms": 205.791,
+      "windowSeconds": 120,
+      "rampSeconds": 50.648684895,
+      "passed": true,
+      "resources": {
+        "controller": {
+          "cpuPercent": 7.58,
+          "peakRssMiB": 117.3,
+          "peakCgroupMiB": 256.56
+        },
+        "traefik": {
+          "cpuPercent": 8.99,
+          "peakRssMiB": 163.76,
+          "peakCgroupMiB": 256
+        }
+      }
+    },
+    "cloudflare-hosted": {
+      "requestedSubscriptions": 1000,
+      "establishedSubscriptions": 1000,
+      "dialFailures": 0,
+      "unexpectedDisconnects": 0,
+      "sequenceGaps": 0,
+      "subscriptionMessages": 300000,
+      "minimumMessagesPerSubscriber": 300,
+      "targetRps": 110,
+      "httpScheduled": 33000,
+      "httpCompleted": 33000,
+      "httpErrors": 0,
+      "schedulerDrops": 0,
+      "effectiveRps": 109.99347814203473,
+      "httpP50Ms": 25.992,
+      "httpP95Ms": 183.716,
+      "httpP99Ms": 238.023,
+      "windowSeconds": 300,
+      "rampSeconds": 50.716239291,
+      "passed": true
+    }
+  }
+}
