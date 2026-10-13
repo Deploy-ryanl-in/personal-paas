@@ -21,6 +21,7 @@ LockPersonality=true
 RestrictSUIDSGID=true
 MemoryMax=160M
 TasksMax=64
+LimitNOFILE=65536
 TimeoutStopSec=15
 
 [Install]

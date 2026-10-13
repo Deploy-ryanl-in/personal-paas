@@ -31,6 +31,10 @@ import (
 const MaxBody = 1 << 20
 const MaxMessage = 64 << 10
 
+// HTTP requests and long-lived subscriptions have independent admission limits.
+const MaxHTTPRequests = 128
+const MaxWebSockets = 2048
+
 type Route struct {
 	RepositoryID int64
 	ServiceName  string
@@ -48,6 +52,7 @@ type Gateway struct {
 	routes    atomic.Pointer[snapshot]
 	key       []byte
 	slots     chan struct{}
+	wsSlots   chan struct{}
 	watchers  chan struct{}
 	transport *http.Transport
 	mu        sync.Mutex
@@ -56,7 +61,7 @@ type Gateway struct {
 }
 
 func New(key []byte) *Gateway {
-	g := &Gateway{key: append([]byte{}, key...), slots: make(chan struct{}, 32), watchers: make(chan struct{}, 32), cache: map[cacheKey]*list.Element{}, transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ResponseHeaderTimeout: 10 * time.Second, MaxResponseHeaderBytes: 64 << 10, MaxIdleConns: 64, MaxIdleConnsPerHost: 8, IdleConnTimeout: 60 * time.Second}}
+	g := &Gateway{key: append([]byte{}, key...), slots: make(chan struct{}, MaxHTTPRequests), wsSlots: make(chan struct{}, MaxWebSockets), watchers: make(chan struct{}, 32), cache: map[cacheKey]*list.Element{}, transport: &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ResponseHeaderTimeout: 10 * time.Second, MaxResponseHeaderBytes: 64 << 10, MaxIdleConns: 256, MaxIdleConnsPerHost: 64, IdleConnTimeout: 60 * time.Second}}
 	g.Update(nil)
 	return g
 }
@@ -139,9 +144,14 @@ func conflict(w http.ResponseWriter) {
 	w.Write([]byte(`{"error":"multi_service_conflict","detail":"多服务冲突"}`))
 }
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	websocketRequest := strings.EqualFold(req.Header.Get("Upgrade"), "websocket")
+	slots := g.slots
+	if websocketRequest {
+		slots = g.wsSlots
+	}
 	select {
-	case g.slots <- struct{}{}:
-		defer func() { <-g.slots }()
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
 	default:
 		http.Error(w, "shared ingress busy", 503)
 		return
@@ -157,7 +167,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.NotFound(w, req)
 		return
 	}
-	if strings.EqualFold(req.Header.Get("Upgrade"), "websocket") {
+	if websocketRequest {
 		g.websocket(w, req, routes, key)
 		return
 	}
